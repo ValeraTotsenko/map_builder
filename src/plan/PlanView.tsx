@@ -45,6 +45,11 @@ function nameFor(snapshot: Snapshot, kind: 'project' | 'delivery' | 'lane' | 'pe
   return item?.name || 'Удалённый объект';
 }
 function dateForExcel(s?: string) { return s ? new Date(`${s}T12:00:00Z`) : null; }
+function intersectsPeriod(ref: DateReference, from: string, untilExclusive: string): boolean {
+  if (ref.kind === 'exact') return ref.date >= from && ref.date < untilExclusive;
+  if (ref.kind === 'range') return ref.end >= from && ref.start < untilExclusive;
+  return false;
+}
 
 export default function PlanView({ snapshot, onChange, onNavigateToProcess, initialSelection }: PlanViewProps) {
   const data = snapshot.data;
@@ -113,17 +118,14 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       block: { projectId: data.projects[0]?.id || '', laneId: data.lanes[0]?.id || '', startWeek: week, endWeek: week, content: 'Новый блок', status: 'Запланировано', note: '' },
       event: { type: 'Заметка', startWeek: week, text: 'Новое событие' },
       person: { type: 'person', name: 'Новый участник', color: '#2563eb' },
-      estimate: { targetType: 'weekBlock', targetId: data.weekBlocks[0]?.id || '', value: 0, unit: 'шт.', kind: 'estimate' },
-      link: { sourceType: 'weekBlock', sourceId: data.weekBlocks[0]?.id || '', targetType: 'stage', targetId: data.stages[0]?.id || '', note: '' },
+      estimate: { targetType: data.weekBlocks.length ? 'weekBlock' : 'delivery', targetId: data.weekBlocks[0]?.id || data.deliveries[0]?.id || '', value: 0, unit: 'шт.', kind: 'estimate' },
+      link: { sourceType: data.weekBlocks.length ? 'weekBlock' : 'delivery', sourceId: data.weekBlocks[0]?.id || data.deliveries[0]?.id || '', targetType: data.stages.length ? 'stage' : 'checkpoint', targetId: data.stages[0]?.id || data.checkpoints[0]?.id || '', note: '' },
     };
     if (kind === 'delivery' && !data.projects.length) { setMessage('Сначала создайте проект.'); return; }
     if (kind === 'block' && (!data.projects.length || !data.lanes.length)) { setMessage('Для блока нужны проект и дорожка.'); return; }
     if (kind === 'estimate' && !data.weekBlocks.length && !data.deliveries.length) { setMessage('Сначала создайте поставку или блок.'); return; }
     if (kind === 'link' && (!data.weekBlocks.length && !data.deliveries.length || !data.stages.length && !data.checkpoints.length)) { setMessage('Для связи нужны объект плана и этап или точка процесса.'); return; }
     let item: Record<string, unknown> = { ...base, ...defaults[kind], ...prefill };
-    if (kind === 'estimate' && !data.weekBlocks.length) item = { ...item, targetType: 'delivery', targetId: data.deliveries[0].id };
-    if (kind === 'link' && !data.weekBlocks.length) item = { ...item, sourceType: 'delivery', sourceId: data.deliveries[0].id };
-    if (kind === 'link' && !data.stages.length) item = { ...item, targetType: 'checkpoint', targetId: data.checkpoints[0].id };
     commit(next => { (next.data[COLLECTION[kind]] as any[]).push(item); });
     setSelection({ kind, id: base.id });
     setMessage('Объект создан. Заполните поля в инспекторе.');
@@ -198,22 +200,28 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   function toggle(id: string) { setCollapsed(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
   function choose(kind: EntityKind, id: string) { setSelection({ kind, id }); setMessage(''); }
   function fitsFilter(text: string) { return !filters.search || text.toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()); }
-  const visibleProjects = projects.filter(p => {
-    if (filters.project && filters.project !== p.id) return false;
-    const projectDeliveries = deliveries.filter(x => x.projectId === p.id);
-    const projectBlocks = blocks.filter(x => x.projectId === p.id);
-    return fitsFilter([p.name, p.type, ...projectDeliveries.map(x => x.name), ...projectBlocks.map(x => x.content)].join(' '));
-  });
   const filteredBlocks = blocks.filter(b =>
     (!filters.project || b.projectId === filters.project) && (!filters.delivery || b.deliveryId === filters.delivery) &&
     (!filters.lane || b.laneId === filters.lane) && (!filters.person || b.personId === filters.person) &&
     (!filters.status || b.status === filters.status) && fitsFilter([b.content, b.note, nameFor(snapshot, 'project', b.projectId), nameFor(snapshot, 'delivery', b.deliveryId)].join(' '))
   );
-  const visibleDeliveries = deliveries.filter(d =>
-    visibleProjects.some(p => p.id === d.projectId) && (!filters.delivery || filters.delivery === d.id) &&
-    (!filters.status || filters.status === d.status) && (!filters.search || fitsFilter([d.name, d.kind, nameFor(snapshot, 'project', d.projectId)].join(' ')))
-  );
-  const visibleEvents = events.filter(e => (!filters.project || e.projectId === filters.project) && (!filters.person || e.actorId === filters.person) && fitsFilter(e.text));
+  const visibleDeliveries = deliveries.filter(d => {
+    if ((filters.project && filters.project !== d.projectId) || (filters.delivery && filters.delivery !== d.id)) return false;
+    const hasMatchingBlock = filteredBlocks.some(b => b.deliveryId === d.id);
+    if (filters.lane || filters.person) return hasMatchingBlock;
+    const matchesDelivery = fitsFilter([d.name, d.kind, nameFor(snapshot, 'project', d.projectId)].join(' ')) && (!filters.status || filters.status === d.status);
+    return matchesDelivery || hasMatchingBlock;
+  });
+  const visibleProjects = projects.filter(p => {
+    if (filters.project && filters.project !== p.id) return false;
+    const hasMatchingDelivery = visibleDeliveries.some(d => d.projectId === p.id);
+    const hasStandaloneBlock = filteredBlocks.some(b => b.projectId === p.id && !b.deliveryId);
+    if (filters.delivery || filters.lane || filters.person) return hasMatchingDelivery || hasStandaloneBlock;
+    if (!filters.search && !filters.status) return true;
+    return hasMatchingDelivery || hasStandaloneBlock || (fitsFilter([p.name, p.type].join(' ')) && (!filters.status || p.status === filters.status));
+  });
+  const visibleEvents = events.filter(e => !filters.delivery && !filters.lane && !filters.status &&
+    (!filters.project || e.projectId === filters.project) && (!filters.person || e.actorId === filters.person) && fitsFilter(e.text));
   const undated = visibleDeliveries.filter(d => d.deadline.kind === 'unknown' && d.checkpointDate.kind === 'unknown');
   const statusOptions = Array.from(new Set([...projects.map(x => x.status), ...deliveries.map(x => x.status), ...blocks.map(x => x.status)])).filter(Boolean);
 
@@ -249,10 +257,17 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     try {
       const ExcelJS = (await import('exceljs')).default;
       const useCurrent = scope === 'current';
-      const pickedProjects = useCurrent ? visibleProjects : projects;
-      const pickedDeliveries = useCurrent ? visibleDeliveries : deliveries;
       const pickedBlocks = useCurrent ? filteredBlocks.filter(b => weeks.some(w => w >= b.startWeek && w <= b.endWeek)) : blocks;
       const pickedEvents = useCurrent ? visibleEvents.filter(e => weeks.some(w => w >= e.startWeek && w <= (e.endWeek || e.startWeek))) : events;
+      const untilExclusive = addWeeks(origin, weeksCount);
+      const pickedDeliveries = useCurrent ? visibleDeliveries.filter(d => {
+        const references = [d.startDate, d.checkpointDate, d.deadline] as DateReference[];
+        const hasKnownDate = references.some(ref => ref.kind !== 'unknown');
+        const hasIncludedBlock = pickedBlocks.some(b => b.deliveryId === d.id);
+        const hasAnyBlock = blocks.some(b => b.deliveryId === d.id);
+        return references.some(ref => intersectsPeriod(ref, origin, untilExclusive)) || hasIncludedBlock || (!hasKnownDate && !hasAnyBlock);
+      }) : deliveries;
+      const pickedProjects = useCurrent ? visibleProjects.filter(p => pickedDeliveries.some(d => d.projectId === p.id) || pickedBlocks.some(b => b.projectId === p.id) || (!deliveries.some(d => d.projectId === p.id) && !blocks.some(b => b.projectId === p.id))) : projects;
       const workbook = new ExcelJS.Workbook();
       workbook.creator = 'Конструктор процессов и планов';
       workbook.created = new Date();
@@ -372,15 +387,15 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         <div className="plan-legend"><span><i className="legend-work" /> Рабочий блок</span><span><i className="legend-unassigned" /> Не назначено</span><span><i className="legend-estimate" /> Приблизительный срок</span><span><i className="legend-event" /> Событие</span></div>
       </div>
       {selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>Инспектор</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => setSelection(null)}>×</button></div>
-        <Inspector snapshot={snapshot} kind={selection.kind} item={selected} update={values => update(selection.kind, selection.id, values)} add={add} onNavigateToProcess={onNavigateToProcess} />
+        <Inspector snapshot={snapshot} kind={selection.kind} item={selected} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} />
         <div className="plan-inspector-foot"><button className="danger" onClick={removeSelected}>Удалить</button></div>
       </aside>}
     </div>
   </div>;
 }
 
-type InspectorProps = { snapshot: Snapshot; kind: EntityKind; item: any; update: (values: Record<string, unknown>) => void; add: (kind: EntityKind, prefill?: Record<string, unknown>) => void; onNavigateToProcess: (targetId: string) => void };
-function Inspector({ snapshot, kind, item, update, add, onNavigateToProcess }: InspectorProps) {
+type InspectorProps = { snapshot: Snapshot; kind: EntityKind; item: any; update: (values: Record<string, unknown>) => void; add: (kind: EntityKind, prefill?: Record<string, unknown>) => void; choose: (kind: EntityKind, id: string) => void; onNavigateToProcess: (targetId: string) => void };
+function Inspector({ snapshot, kind, item, update, add, choose, onNavigateToProcess }: InspectorProps) {
   const d = snapshot.data;
   const input = (label: string, key: string, type = 'text') => <label className="plan-field">{label}<input type={type} value={item[key] ?? ''} onChange={e => update({ [key]: type === 'number' ? Number(e.target.value) : e.target.value })} /></label>;
   const area = (label: string, key: string) => <label className="plan-field">{label}<textarea rows={3} value={item[key] ?? ''} onChange={e => update({ [key]: e.target.value })} /></label>;
@@ -395,11 +410,11 @@ function Inspector({ snapshot, kind, item, update, add, onNavigateToProcess }: I
   };
   const linkSection = (sourceType: 'delivery' | 'weekBlock') => {
     const links = d.crossLinks.filter(l => l.sourceType === sourceType && l.sourceId === item.id);
-    return <section className="plan-inspector-section"><h3>Связи с картой процессов</h3>{links.map(l => <div className="plan-related" key={l.id}><button onClick={() => onNavigateToProcess(l.targetId)}>{l.targetType === 'stage' ? d.stages.find(x => x.id === l.targetId)?.name : d.checkpoints.find(x => x.id === l.targetId)?.name || 'Открыть объект процесса'} ↗</button><small>{l.note}</small></div>)}<button onClick={() => add('link', { sourceType, sourceId: item.id })}>+ Добавить связь</button></section>;
+    return <section className="plan-inspector-section"><h3>Связи с картой процессов</h3>{links.map(l => <div className="plan-related" key={l.id}><button onClick={() => onNavigateToProcess(l.targetId)}>{l.targetType === 'stage' ? d.stages.find(x => x.id === l.targetId)?.name : d.checkpoints.find(x => x.id === l.targetId)?.name || 'Открыть объект процесса'} ↗</button><small>{l.note}</small><button onClick={() => choose('link', l.id)}>Изменить связь</button></div>)}<button onClick={() => add('link', { sourceType, sourceId: item.id })}>+ Добавить связь</button></section>;
   };
   const estimateSection = (targetType: 'delivery' | 'weekBlock') => {
     const estimates = d.estimates.filter(e => e.targetType === targetType && e.targetId === item.id);
-    return <section className="plan-inspector-section"><h3>Оценки объёма</h3>{estimates.map(e => <div className="plan-related" key={e.id}><span>{e.value} {e.unit} · {e.kind === 'actual' ? 'факт' : e.kind === 'forecast' ? 'прогноз' : 'оценка'}</span><button onClick={() => add('estimate', { targetType, targetId: item.id, value: e.value, unit: e.unit, kind: e.kind })}>Копия</button></div>)}<button onClick={() => add('estimate', { targetType, targetId: item.id })}>+ Добавить оценку</button></section>;
+    return <section className="plan-inspector-section"><h3>Оценки объёма</h3>{estimates.map(e => <div className="plan-related" key={e.id}><span>{e.value} {e.unit} · {e.kind === 'actual' ? 'факт' : e.kind === 'forecast' ? 'прогноз' : 'оценка'}</span><button onClick={() => choose('estimate', e.id)}>Изменить оценку</button></div>)}<button onClick={() => add('estimate', { targetType, targetId: item.id })}>+ Добавить оценку</button></section>;
   };
   return <div className="plan-inspector-body">
     {kind === 'project' && <>{input('Название', 'name')}{input('Тип', 'type')}{status()}{area('Заметки', 'notes')}<section className="plan-inspector-section"><h3>Поставки</h3>{d.deliveries.filter(x => x.projectId === item.id).map(x => <div className="plan-related" key={x.id}>{x.name}</div>)}<button onClick={() => add('delivery', { projectId: item.id })}>+ Поставка</button></section></>}

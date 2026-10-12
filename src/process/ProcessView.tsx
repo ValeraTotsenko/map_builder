@@ -65,12 +65,15 @@ function countConsequences(kind: Kind, id: string, data: WorkspaceData): string[
     const stageIds = data.stages.filter(x => x.processId === id).map(x => x.id)
     const pointIds = data.checkpoints.filter(x => x.processId === id).map(x => x.id)
     add('Этапы', stageIds.length); add('Контрольные точки', pointIds.length)
+    add('Зависимости', data.dependencies.filter(x => [id, ...stageIds].includes(x.sourceId) || [id, ...stageIds].includes(x.targetId)).length)
     add('Участие', data.participations.filter(x => x.targetId === id || stageIds.includes(x.targetId) || pointIds.includes(x.targetId)).length)
+    add('Передачи', data.handovers.filter(x => [id, ...stageIds].includes(x.targetId) || pointIds.includes(x.checkpointId || '')).length)
+    add('Привязки общих вех будут сняты', data.sharedMilestones.filter(x => x.processIds.includes(id)).length)
     add('Межэкранные связи', data.crossLinks.filter(x => stageIds.includes(x.targetId) || pointIds.includes(x.targetId)).length)
   }
-  if (kind === 'stage') { add('Контрольные точки будут отвязаны от этапа', data.checkpoints.filter(x => x.stageId === id).length); add('Межэкранные связи', data.crossLinks.filter(x => x.targetId === id).length) }
-  if (kind === 'checkpoint') add('Межэкранные связи', data.crossLinks.filter(x => x.targetId === id).length)
-  if (kind === 'actor') { add('Участие', data.participations.filter(x => x.actorId === id).length); add('Передачи', data.handovers.filter(x => x.fromActorId === id || x.toActorId === id).length); add('Назначения плана', data.weekBlocks.filter(x => x.personId === id).length) }
+  if (kind === 'stage') { add('Контрольные точки будут отвязаны от этапа', data.checkpoints.filter(x => x.stageId === id).length); add('Зависимости', data.dependencies.filter(x => x.sourceId === id || x.targetId === id).length); add('Участие', data.participations.filter(x => x.targetId === id).length); add('Передачи', data.handovers.filter(x => x.targetId === id).length); add('Межэкранные связи', data.crossLinks.filter(x => x.targetId === id).length) }
+  if (kind === 'checkpoint') { add('Участие', data.participations.filter(x => x.targetId === id).length); add('Ссылки передач будут сняты', data.handovers.filter(x => x.checkpointId === id).length); add('Межэкранные связи', data.crossLinks.filter(x => x.targetId === id).length) }
+  if (kind === 'actor') { add('Участие', data.participations.filter(x => x.actorId === id).length); add('Передачи', data.handovers.filter(x => x.fromActorId === id || x.toActorId === id).length); add('Назначения плана', data.weekBlocks.filter(x => x.personId === id).length); add('Владение поставками', data.deliveries.filter(x => x.ownerActorId === id).length); add('События плана', data.planEvents.filter(x => x.actorId === id).length); add('Принадлежность участников к отделу будет снята', data.actors.filter(x => x.departmentId === id).length) }
   return lines
 }
 
@@ -182,8 +185,12 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
 
   const processSpan = (id: string) => {
     const stages = data.stages.filter(x => x.processId === id)
-    const dates = stages.flatMap(x => [refStart(x.plannedStart), refEnd(x.plannedEnd)]).filter((x): x is string => !!x).sort()
-    return dates.length ? { start: dates[0], end: dates[dates.length - 1] } : null
+    const starts = stages.map(x => refStart(x.plannedStart)).filter((x): x is string => !!x).sort()
+    const ends = stages.map(x => refEnd(x.plannedEnd)).filter((x): x is string => !!x).sort()
+    if (starts.length && ends.length) return { start: starts[0], end: ends[ends.length - 1] }
+    if (starts.length) return { start: starts[0], end: undefined }
+    if (ends.length) return { start: undefined, end: ends[ends.length - 1] }
+    return null
   }
   const visibleProcesses = data.processes.filter(p => {
     const query = search.trim().toLocaleLowerCase('ru')
@@ -232,8 +239,15 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     if (row.kind === 'milestone') { const m = data.sharedMilestones.find(x => x.id === row.id); return m ? { start: refStart(m.date), end: refEnd(m.date) } : null }
     return null
   }
-  const actorTargets = new Set(data.participations.filter(x => x.actorId === actorFilter).map(x => x.targetId))
-  const highlighted = (row: Row) => !actorFilter || actorTargets.has(row.id) || (row.kind === 'process' && data.participations.some(p => p.actorId === actorFilter && (p.targetId === row.id || data.stages.some(s => s.processId === row.id && s.id === p.targetId) || data.checkpoints.some(c => c.processId === row.id && c.id === p.targetId))))
+  const actorScopeIds = new Set([actorFilter, ...data.actors.filter(a => a.departmentId === actorFilter && data.actors.some(parent => parent.id === actorFilter && parent.type === 'department')).map(a => a.id)])
+  const actorTargets = new Set(data.participations.filter(x => actorScopeIds.has(x.actorId)).map(x => x.targetId))
+  const highlighted = (row: Row): boolean => {
+    if (!actorFilter) return true
+    if (actorTargets.has(row.id)) return true
+    if (row.kind === 'process') return data.stages.some(s => s.processId === row.id && actorTargets.has(s.id)) || data.checkpoints.some(c => c.processId === row.id && actorTargets.has(c.id))
+    if (row.kind === 'group') return data.processes.some(p => (row.id === '_ungrouped' ? !p.groupId : p.groupId === row.id) && highlighted({ kind: 'process', id: p.id, label: p.name, depth: 1 }))
+    return false
+  }
   const selectedLinks = data.dependencies.filter(link => showAllLinks || link.sourceId === selected?.id || link.targetId === selected?.id)
   const conflicts = data.dependencies.filter(link => {
     if (link.type !== 'prerequisite') return false
@@ -318,10 +332,11 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
         })}{!rows.length && <div className="pv-empty">Карта пока пуста. Создайте группу или процесс.</div>}</div>
         <div className="pv-time" style={{ '--pv-col-width': `${100 / columns.length}%` } as CSSProperties}>
           <div className="pv-head pv-time-head">{columns.map(c => <span key={c.start}>{c.label}</span>)}</div>
-          {rows.map(row => { const dates = span(row); const isSelected = selected?.kind === row.kind && selected.id === row.id; const visible = dates?.start && dates?.end && day(dates.end).getTime() >= domainStart && day(dates.start).getTime() < domainEnd; const left = dates?.start ? pct(dates.start) : 0; const right = dates?.end ? pct(plusDays(dates.end, 1)) : left; return <div key={`${row.kind}-${row.id}`} className={`pv-row pv-time-row ${row.kind} ${isSelected ? 'selected' : ''} ${!highlighted(row) ? 'dimmed' : ''}`} onClick={() => row.id !== '_ungrouped' && select(row.kind === 'milestone' ? 'milestone' : row.kind, row.id)}>
+          {rows.map(row => { const dates = span(row); const isSelected = selected?.kind === row.kind && selected.id === row.id; const visible = dates?.start && dates?.end && day(dates.end).getTime() >= domainStart && day(dates.start).getTime() < domainEnd; const left = dates?.start ? pct(dates.start) : 0; const right = dates?.end ? pct(plusDays(dates.end, 1)) : left; const rowHandovers = data.handovers.filter(h => h.targetId === row.id && (showAllLinks || h.targetId === selected?.id || (selected?.kind === 'process' && relatedProcessIds.includes(h.targetId)))); return <div key={`${row.kind}-${row.id}`} className={`pv-row pv-time-row ${row.kind} ${isSelected ? 'selected' : ''} ${!highlighted(row) ? 'dimmed' : ''} ${rowHandovers.length ? 'has-handovers' : ''}`} onClick={() => row.id !== '_ungrouped' && select(row.kind === 'milestone' ? 'milestone' : row.kind, row.id)}>
+            {!!rowHandovers.length && <div className="pv-handover-list" aria-label="Передачи результата">{rowHandovers.map(h => { const from = data.actors.find(a => a.id === h.fromActorId)?.name || '?'; const to = data.actors.find(a => a.id === h.toActorId)?.name || '?'; const arrowId = `pv-handover-arrow-${h.id}`; return <div className="pv-handover-flow" key={h.id} title={`${from} → ${to}: ${h.description}`}><span>{from}</span><svg width="27" height="12" viewBox="0 0 27 12" aria-hidden="true"><defs><marker id={arrowId} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#47648b" /></marker></defs><line x1="1" y1="6" x2="24" y2="6" stroke="#47648b" strokeWidth="1.7" markerEnd={`url(#${arrowId})`} /></svg><span>{to}</span><strong>{h.description}</strong></div> })}</div>}
             {(row.kind === 'process' || row.kind === 'stage') && visible && <div className={`pv-bar ${row.kind}`} title={`${row.label}: ${formatDate(dates.start)} — ${formatDate(dates.end)}`} style={{ left: `${left}%`, width: `${Math.max(1.1, right - left)}%`, borderLeftColor: row.color || undefined }}>{row.label}</div>}
             {(row.kind === 'checkpoint' || row.kind === 'milestone') && visible && <span className={`pv-marker ${row.kind}`} title={`${row.label}: ${formatDate(dates.start)}`} style={{ left: `${left}%` }} />}
-            {row.kind !== 'group' && !dates?.start && <span className="pv-unscheduled">Не запланировано</span>}
+            {row.kind !== 'group' && !visible && <span className="pv-unscheduled">{dates?.start || dates?.end ? 'Срок указан частично' : 'Не запланировано'}</span>}
           </div> })}
           {!!linkPaths.length && <svg className="pv-link-overlay" viewBox={`0 0 940 ${rows.length * 54}`} preserveAspectRatio="none" style={{ height: rows.length * 54 }} aria-label="Связи между процессами и этапами"><defs><marker id="pv-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#556987" /></marker></defs>{linkPaths.map(l => <path key={l.id} d={l.d} className={`${l.type === 'influence' ? 'influence' : ''} ${l.conflict ? 'conflict' : ''}`} />)}</svg>}
           {!!conflicts.length && <span className="pv-links-note">⚠ Конфликт сроков предпосылок: {conflicts.length}</span>}

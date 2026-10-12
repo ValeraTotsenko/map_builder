@@ -41,6 +41,11 @@
 .pv-bar{height:24px;border-radius:5px;position:absolute;display:flex;align-items:center;padding:0 8px;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;font-weight:600;z-index:1}
 .pv-bar.process{height:28px;background:#dce9ff;border-left:4px solid #2563eb;color:#17386b}
 .pv-bar.stage{background:#e8edf5;border-left:4px solid #6a83ab;color:#263a57}
+.pv-time-row.has-handovers .pv-bar{top:29px;height:19px}
+.pv-handover-list{position:absolute;left:6px;right:6px;top:1px;height:25px;display:flex;align-items:center;gap:5px;overflow-x:auto;z-index:3;pointer-events:auto;scrollbar-width:thin}
+.pv-handover-flow{display:inline-flex;align-items:center;gap:3px;flex:none;height:18px;padding:0 5px;border:1px solid #bcc9d9;border-radius:4px;background:#fff;color:#26405e;font-size:10px;white-space:nowrap;box-shadow:0 1px 2px #17212f14}
+.pv-handover-flow span{max-width:78px;overflow:hidden;text-overflow:ellipsis}.pv-handover-flow strong{max-width:165px;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:#17212f}
+.pv-handover-flow svg{flex:none}
 .pv-marker{position:absolute;top:16px;width:18px;height:18px;transform:translateX(-50%);z-index:2;border:2px solid #fff;box-shadow:0 0 0 1px #8d9cb1;background:#2563eb;rotate:45deg}
 .pv-marker.checkpoint{border-radius:2px}.pv-marker.milestone{border-radius:50%;background:#7c3aed;rotate:0}
 .pv-unscheduled{margin-left:12px;color:#64748b;font-style:italic;font-size:11px}
