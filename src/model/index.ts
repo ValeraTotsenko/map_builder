@@ -249,7 +249,7 @@ export function getSnapshotSummary(snapshot: Snapshot): SnapshotSummary {
   }
 }
 
-export { validateSnapshot } from './validation'
+export { validateSnapshot, validateDateReference, validateDateOrder } from './validation'
 export {
   loadSnapshot,
   saveSnapshot,

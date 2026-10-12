@@ -17,10 +17,19 @@ function downloadBlob(name: string, value: Blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+const summaryLabels: Record<string, string> = {
+  groups: 'Группы', processes: 'Процессы', actors: 'Участники',
+  projects: 'Проекты', deliveries: 'Поставки', weekBlocks: 'Недельные блоки',
+};
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function Summary({ title, snapshot }: { title: string; snapshot: Snapshot }) {
   const summary = getSnapshotSummary(snapshot);
   const counts = Object.entries(summary).filter(([, value]) => typeof value === 'number');
-  return <div className="restore-summary"><strong>{title}</strong><span>{snapshot.workspace.name}</span><div>{counts.map(([key, value]) => <small key={key}>{key}: {String(value)}</small>)}</div></div>;
+  return <div className="restore-summary"><strong>{title}</strong><span>{snapshot.workspace.name}</span><div>{counts.map(([key, value]) => <small key={key}>{summaryLabels[key] ?? key}: {String(value)}</small>)}</div></div>;
 }
 
 function App() {
@@ -35,14 +44,14 @@ function App() {
   const saving = useRef<Promise<void>>(Promise.resolve());
   const fileInput = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { loadSnapshot().then(setSnapshot).then(() => getRollbackSnapshot().then(value => setRollbackAvailable(Boolean(value)))).catch(error => setMessage(`Не удалось открыть данные: ${String(error)}`)); }, []);
+  useEffect(() => { loadSnapshot().then(setSnapshot).then(() => getRollbackSnapshot().then(value => setRollbackAvailable(Boolean(value)))).catch(error => setMessage(`Не удалось открыть данные: ${errorText(error)}`)); }, []);
 
   const change = (next: Snapshot) => {
     try { validateSnapshot(next); }
-    catch (error) { setMessage(`Изменение не сохранено: ${String(error)}`); return; }
+    catch (error) { setMessage(`Изменение не сохранено: ${errorText(error)}`); return; }
     setSnapshot(next);
     saving.current = saving.current.catch(() => undefined).then(() => saveSnapshot(next));
-    saving.current.catch(error => setMessage(`Не удалось сохранить изменения: ${String(error)}`));
+    saving.current.catch(error => setMessage(`Не удалось сохранить изменения: ${errorText(error)}`));
   };
 
   const backup = async () => {
@@ -53,7 +62,7 @@ function App() {
       downloadBlob(result.filename, new Blob([result.json], { type: 'application/json;charset=utf-8' }));
       setMessage(`Создана копия ${result.filename} · ${new Date(result.backup.exportedAt).toLocaleString('ru-RU')}`);
       setDataOpen(false);
-    } catch (error) { setMessage(`Копия не создана: ${String(error)}`); }
+    } catch (error) { setMessage(`Копия не создана: ${errorText(error)}`); }
     finally { setBusy(false); }
   };
 
@@ -61,7 +70,7 @@ function App() {
     if (!file) return;
     setBusy(true);
     try { await saving.current; setPreview(await parseBackup(await file.text())); setDataOpen(false); }
-    catch (error) { setMessage(`Файл отклонён: ${String(error)}`); }
+    catch (error) { setMessage(`Файл отклонён: ${errorText(error)}`); }
     finally { setBusy(false); if (fileInput.current) fileInput.current.value = ''; }
   };
 
@@ -75,14 +84,14 @@ function App() {
       setRollbackAvailable(true);
       setPreview(null);
       setMessage('Рабочее пространство восстановлено. Предыдущее состояние можно вернуть через меню «Данные».');
-    } catch (error) { setMessage(`Восстановление не выполнено: ${String(error)}`); }
+    } catch (error) { setMessage(`Восстановление не выполнено: ${errorText(error)}`); }
     finally { setBusy(false); }
   };
 
   const rollback = async () => {
     setBusy(true);
     try { await saving.current; setSnapshot(await rollbackRestore()); setRollbackAvailable(false); setDataOpen(false); setMessage('Состояние до восстановления возвращено.'); }
-    catch (error) { setMessage(`Не удалось вернуть состояние: ${String(error)}`); }
+    catch (error) { setMessage(`Не удалось вернуть состояние: ${errorText(error)}`); }
     finally { setBusy(false); }
   };
 
@@ -96,7 +105,7 @@ function App() {
     </header>
     {message && <div role="status" className="global-message"><span>{message}</span><button aria-label="Закрыть сообщение" onClick={() => setMessage('')}><X size={15}/></button></div>}
     <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/>}</main>
-    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Будет полностью заменено текущее рабочее пространство. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
+    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Копия полностью заменит данные карты процессов и плана проектов. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
   </div>;
 }
 

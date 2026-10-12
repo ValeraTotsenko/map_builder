@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Snapshot } from '../model';
-import { createId } from '../model';
+import { createId, validateSnapshot } from '../model';
 import './plan.css';
 
 type EntityKind = 'project' | 'delivery' | 'lane' | 'block' | 'event' | 'person' | 'estimate' | 'link';
 type DateReference = { kind: 'unknown'; text?: string } | { kind: 'exact'; date: string; text?: string } | { kind: 'range'; start: string; end: string; text?: string };
 type Selection = { kind: EntityKind; id: string } | null;
+type Draft = { kind: EntityKind; item: Record<string, any> };
 type FilterState = { search: string; project: string; delivery: string; lane: string; person: string; status: string };
 type PlanViewProps = { snapshot: Snapshot; onChange: (next: Snapshot) => void; onNavigateToProcess: (targetId: string) => void; initialSelection?: string };
 
@@ -31,6 +32,14 @@ function deadlineText(ref?: DateReference): string {
   return `${humanDate(ref.start)} – ${humanDate(ref.end)}`;
 }
 function validWeek(s: string): string { return s ? iso(monday(date(s))) : todayWeek(); }
+function blockCount(count: number): string { return `${count} ${count % 10 === 1 && count % 100 !== 11 ? 'блок' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'блока' : 'блоков'}`; }
+function weekDateIssue(kind: EntityKind, item: Record<string, any>): string {
+  if (kind !== 'block' && kind !== 'event') return '';
+  if (!item.startWeek) return 'Укажите первую неделю.';
+  if (kind === 'block' && !item.endWeek) return 'Укажите последнюю неделю.';
+  if (item.endWeek && item.endWeek < item.startWeek) return 'Последняя неделя должна быть не раньше первой.';
+  return '';
+}
 function parseSelection(snapshot: Snapshot, id?: string): Selection {
   if (!id) return null;
   for (const kind of Object.keys(COLLECTION) as EntityKind[]) {
@@ -54,6 +63,7 @@ function intersectsPeriod(ref: DateReference, from: string, untilExclusive: stri
 export default function PlanView({ snapshot, onChange, onNavigateToProcess, initialSelection }: PlanViewProps) {
   const data = snapshot.data;
   const [selection, setSelection] = useState<Selection>(() => parseSelection(snapshot, initialSelection));
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [origin, setOrigin] = useState(() => addWeeks(todayWeek(), -2));
   const [weeksCount, setWeeksCount] = useState(16);
@@ -61,36 +71,44 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [showUndated, setShowUndated] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
+  const [fieldError, setFieldError] = useState('');
 
-  useEffect(() => { if (initialSelection) setSelection(parseSelection(snapshot, initialSelection)); }, [initialSelection]);
+  useEffect(() => { if (initialSelection) { setDraft(null); setSelection(parseSelection(snapshot, initialSelection)); } }, [initialSelection]);
   const weeks = useMemo(() => Array.from({ length: weeksCount }, (_, i) => addWeeks(origin, i)), [origin, weeksCount]);
   const projects = [...data.projects].sort((a, b) => a.order - b.order);
   const deliveries = data.deliveries;
   const blocks = data.weekBlocks;
   const events = data.planEvents;
   const people = data.actors.filter(a => a.type === 'person');
-  const selected = selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
+  const isDraft = !!selection && draft?.kind === selection.kind && draft.item.id === selection.id;
+  const selected = isDraft ? draft!.item : selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
 
   function commit(mutator: (next: Snapshot) => void) {
     const next = structuredClone(snapshot);
     mutator(next);
+    try { validateSnapshot(next); }
+    catch (error) {
+      const description = error instanceof Error ? error.message : String(error);
+      setFieldError(description);
+      setMessage(`Не удалось сохранить: ${description}`);
+      return false;
+    }
     onChange(next);
+    setFieldError('');
+    return true;
   }
   function update(kind: EntityKind, id: string, values: Record<string, unknown>) {
-    commit(next => {
+    if (draft?.kind === kind && draft.item.id === id) {
+      setDraft({ kind, item: { ...draft.item, ...values } });
+      return;
+    }
+    const current = (data[COLLECTION[kind]] as any[]).find(x => x.id === id);
+    if (!current) return;
+    const issue = weekDateIssue(kind, { ...current, ...values });
+    if (issue) { setMessage(issue); return; }
+    const saved = commit(next => {
       const item = (next.data[COLLECTION[kind]] as any[]).find(x => x.id === id);
       if (!item) return;
-      if (kind === 'delivery') {
-        for (const key of ['startDate', 'checkpointDate', 'deadline']) {
-          const ref = values[key] as DateReference | undefined;
-          if (!ref) continue;
-          if (ref.kind === 'exact' && !ref.date) return;
-          if (ref.kind === 'range') {
-            if (!ref.start || !ref.end) return;
-            if (ref.end < ref.start) values[key] = { ...ref, end: ref.start };
-          }
-        }
-      }
       if (kind === 'delivery' && typeof values.projectId === 'string' && values.projectId !== item.projectId) {
         next.data.weekBlocks.forEach(b => { if (b.deliveryId === id) { b.projectId = values.projectId as string; b.updatedAt = stamp(); } });
       }
@@ -101,12 +119,9 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         const delivery = next.data.deliveries.find(x => x.id === values.deliveryId);
         if (delivery) values.projectId = delivery.projectId;
       }
-      if (kind === 'block' && typeof values.startWeek === 'string' && values.startWeek > item.endWeek) values.endWeek = values.startWeek;
-      if (kind === 'block' && typeof values.endWeek === 'string' && values.endWeek < item.startWeek) values.startWeek = values.endWeek;
-      if (kind === 'event' && typeof values.startWeek === 'string' && item.endWeek && values.startWeek > item.endWeek) values.endWeek = values.startWeek;
-      if (kind === 'event' && typeof values.endWeek === 'string' && values.endWeek < item.startWeek) values.endWeek = item.startWeek;
       Object.assign(item, values, { updatedAt: stamp() });
     });
+    if (saved) setMessage('Сохранено');
   }
   function add(kind: EntityKind, prefill: Record<string, unknown> = {}) {
     const base = createBase();
@@ -125,10 +140,20 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     if (kind === 'block' && (!data.projects.length || !data.lanes.length)) { setMessage('Для блока нужны проект и дорожка.'); return; }
     if (kind === 'estimate' && !data.weekBlocks.length && !data.deliveries.length) { setMessage('Сначала создайте поставку или блок.'); return; }
     if (kind === 'link' && (!data.weekBlocks.length && !data.deliveries.length || !data.stages.length && !data.checkpoints.length)) { setMessage('Для связи нужны объект плана и этап или точка процесса.'); return; }
-    let item: Record<string, unknown> = { ...base, ...defaults[kind], ...prefill };
-    commit(next => { (next.data[COLLECTION[kind]] as any[]).push(item); });
+    const item: Record<string, any> = { ...base, ...defaults[kind], ...prefill };
+    setDraft({ kind, item });
     setSelection({ kind, id: base.id });
-    setMessage('Объект создан. Заполните поля в инспекторе.');
+    setMessage('Заполните карточку и нажмите «Сохранить».');
+  }
+  function saveDraft() {
+    if (!draft) return;
+    const issue = weekDateIssue(draft.kind, draft.item);
+    if (issue) { setMessage(issue); return; }
+    const { kind, item } = draft;
+    if (commit(next => { (next.data[COLLECTION[kind]] as any[]).push(item); })) {
+      setDraft(null);
+      setMessage('Сохранено');
+    }
   }
   function removeSelected() {
     if (!selection || !selected) return;
@@ -198,7 +223,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     setSelection(null);
   }
   function toggle(id: string) { setCollapsed(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
-  function choose(kind: EntityKind, id: string) { setSelection({ kind, id }); setMessage(''); }
+  function choose(kind: EntityKind, id: string) { setDraft(null); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
   function fitsFilter(text: string) { return !filters.search || text.toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()); }
   const filteredBlocks = blocks.filter(b =>
     (!filters.project || b.projectId === filters.project) && (!filters.delivery || b.deliveryId === filters.delivery) &&
@@ -298,7 +323,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       for (const e of pickedEvents) weekly.addRow([e.projectId ? nameFor(snapshot, 'project', e.projectId) : '', '', '', e.actorId ? nameFor(snapshot, 'person', e.actorId) : '', dateForExcel(e.startWeek), dateForExcel(e.endWeek || e.startWeek), e.text, '', '', e.type]);
       for (const sheet of [objects, weekly]) {
         const header = sheet.getRow(3); header.font = { bold: true, color: { argb: 'FFFFFFFF' } }; header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; header.height = 27;
-        sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: sheet.columnCount } };
+        sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(3, sheet.rowCount), column: sheet.columnCount } };
         sheet.eachRow((r, number) => { if (number > 3) { r.alignment = { vertical: 'top', wrapText: true }; r.height = 31; r.eachCell(c => { if (c.value instanceof Date) c.numFmt = 'dd.mm.yyyy'; }); } });
       }
       const buffer = await workbook.xlsx.writeBuffer();
@@ -363,7 +388,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
                     const laneBlocks = filteredBlocks.filter(b => b.deliveryId === d.id && b.laneId === l.id);
                     if (!laneBlocks.length) return null;
                     return <div key={`${d.id}-${l.id}`}>
-                      {row('lane', l.id, l.name, `${laneBlocks.length} блоков`, 2, null, true)}
+                      {row('lane', l.id, l.name, blockCount(laneBlocks.length), 2, null, true)}
                       {!collapsed.has(l.id) && laneBlocks.map(b => row('block', b.id, b.personId ? nameFor(snapshot, 'person', b.personId) : 'Не назначено', b.content, 3, bar(b.startWeek, b.endWeek, b.content, 'block', b.id, b.personId ? 'is-assigned' : 'is-unassigned')))}
                     </div>;
                   })}
@@ -372,7 +397,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
                   const laneBlocks = filteredBlocks.filter(b => b.projectId === p.id && !b.deliveryId && b.laneId === l.id);
                   if (!laneBlocks.length) return null;
                   return <div key={`${p.id}-${l.id}-loose`}>
-                    {row('lane', l.id, l.name, `${laneBlocks.length} блоков без поставки`, 1, null, true)}
+                    {row('lane', l.id, l.name, `${blockCount(laneBlocks.length)} без поставки`, 1, null, true)}
                     {!collapsed.has(l.id) && laneBlocks.map(b => row('block', b.id, b.personId ? nameFor(snapshot, 'person', b.personId) : 'Не назначено', b.content, 2, bar(b.startWeek, b.endWeek, b.content, 'block', b.id, b.personId ? 'is-assigned' : 'is-unassigned')))}
                   </div>;
                 })}
@@ -386,27 +411,33 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         {!showUndated && undated.length > 0 && <button className="plan-show-undated" onClick={() => setShowUndated(true)}>Показать без срока ({undated.length})</button>}
         <div className="plan-legend"><span><i className="legend-work" /> Рабочий блок</span><span><i className="legend-unassigned" /> Не назначено</span><span><i className="legend-estimate" /> Приблизительный срок</span><span><i className="legend-event" /> Событие</span></div>
       </div>
-      {selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>Инспектор</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => setSelection(null)}>×</button></div>
-        <Inspector snapshot={snapshot} kind={selection.kind} item={selected} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} />
-        <div className="plan-inspector-foot"><button className="danger" onClick={removeSelected}>Удалить</button></div>
+      {selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Инспектор'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>×</button></div>
+        <Inspector snapshot={snapshot} kind={selection.kind} item={selected} isDraft={isDraft} fieldError={fieldError} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} onWeekNormalized={value => setMessage(`Дата ${humanDate(value)} приведена к понедельнику ${humanDate(validWeek(value))}.`)} />
+        <div className="plan-inspector-foot">{isDraft ? <><button className="plan-primary" onClick={saveDraft}>Сохранить</button><button onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>Отмена</button></> : <><span className="plan-save-indicator">Сохраняется автоматически</span><button className="danger" onClick={removeSelected}>Удалить</button></>}</div>
       </aside>}
     </div>
   </div>;
 }
 
-type InspectorProps = { snapshot: Snapshot; kind: EntityKind; item: any; update: (values: Record<string, unknown>) => void; add: (kind: EntityKind, prefill?: Record<string, unknown>) => void; choose: (kind: EntityKind, id: string) => void; onNavigateToProcess: (targetId: string) => void };
-function Inspector({ snapshot, kind, item, update, add, choose, onNavigateToProcess }: InspectorProps) {
+type InspectorProps = { snapshot: Snapshot; kind: EntityKind; item: any; isDraft: boolean; fieldError: string; update: (values: Record<string, unknown>) => void; add: (kind: EntityKind, prefill?: Record<string, unknown>) => void; choose: (kind: EntityKind, id: string) => void; onNavigateToProcess: (targetId: string) => void; onWeekNormalized: (value: string) => void };
+function Inspector({ snapshot, kind, item, isDraft, fieldError, update, add, choose, onNavigateToProcess, onWeekNormalized }: InspectorProps) {
   const d = snapshot.data;
   const input = (label: string, key: string, type = 'text') => <label className="plan-field">{label}<input type={type} value={item[key] ?? ''} onChange={e => update({ [key]: type === 'number' ? Number(e.target.value) : e.target.value })} /></label>;
   const area = (label: string, key: string) => <label className="plan-field">{label}<textarea rows={3} value={item[key] ?? ''} onChange={e => update({ [key]: e.target.value })} /></label>;
   const select = (label: string, key: string, options: { id: string; name: string }[], empty = 'Не выбрано') => <label className="plan-field">{label}<select value={item[key] ?? ''} onChange={e => update({ [key]: e.target.value || undefined })}><option value="">{empty}</option>{options.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>;
   const status = () => <label className="plan-field">Статус<select value={item.status || ''} onChange={e => update({ status: e.target.value })}>{['Запланировано', 'В работе', 'Завершено', 'На паузе', 'Риск'].map(x => <option key={x} value={x}>{x}</option>)}</select></label>;
+  const weekChange = (key: 'startWeek' | 'endWeek', value: string) => {
+    if (!value) { update({ [key]: key === 'endWeek' && kind === 'event' ? undefined : '' }); return; }
+    const normalized = validWeek(value);
+    update({ [key]: normalized });
+    if (normalized !== value && (!weekDateIssue(kind, { ...item, [key]: normalized }) || isDraft)) onWeekNormalized(value);
+  };
   const dateRef = (label: string, key: string) => {
     const ref = (item[key] || { kind: 'unknown' }) as DateReference;
     return <fieldset className="plan-date-ref"><legend>{label}</legend><select value={ref.kind} onChange={e => update({ [key]: e.target.value === 'exact' ? { kind: 'exact', date: todayWeek(), text: ref.text } : e.target.value === 'range' ? { kind: 'range', start: todayWeek(), end: addWeeks(todayWeek(), 2), text: ref.text } : { kind: 'unknown', text: ref.text } })}><option value="unknown">Неизвестно</option><option value="exact">Точная дата</option><option value="range">Диапазон</option></select>
       {ref.kind === 'exact' && <input aria-label={`${label}: дата`} type="date" value={ref.date} onChange={e => update({ [key]: { ...ref, date: e.target.value } })} />}
       {ref.kind === 'range' && <div className="plan-date-pair"><input aria-label={`${label}: начало`} type="date" value={ref.start} onChange={e => update({ [key]: { ...ref, start: e.target.value } })} /><input aria-label={`${label}: конец`} type="date" value={ref.end} min={ref.start} onChange={e => update({ [key]: { ...ref, end: e.target.value } })} /></div>}
-      <input aria-label={`${label}: словесный ориентир`} placeholder="Словесный ориентир (необязательно)" value={ref.text || ''} onChange={e => update({ [key]: { ...ref, text: e.target.value } })} /></fieldset>;
+      <input aria-label={`${label}: словесный ориентир`} placeholder="Словесный ориентир (необязательно)" value={ref.text || ''} onChange={e => update({ [key]: { ...ref, text: e.target.value } })} />{fieldError.includes(`.${key}`) && <small className="plan-field-error" role="alert">{fieldError.split(': ').slice(1).join(': ') || fieldError}</small>}</fieldset>;
   };
   const linkSection = (sourceType: 'delivery' | 'weekBlock') => {
     const links = d.crossLinks.filter(l => l.sourceType === sourceType && l.sourceId === item.id);
@@ -417,11 +448,11 @@ function Inspector({ snapshot, kind, item, update, add, choose, onNavigateToProc
     return <section className="plan-inspector-section"><h3>Оценки объёма</h3>{estimates.map(e => <div className="plan-related" key={e.id}><span>{e.value} {e.unit} · {e.kind === 'actual' ? 'факт' : e.kind === 'forecast' ? 'прогноз' : 'оценка'}</span><button onClick={() => choose('estimate', e.id)}>Изменить оценку</button></div>)}<button onClick={() => add('estimate', { targetType, targetId: item.id })}>+ Добавить оценку</button></section>;
   };
   return <div className="plan-inspector-body">
-    {kind === 'project' && <>{input('Название', 'name')}{input('Тип', 'type')}{status()}{area('Заметки', 'notes')}<section className="plan-inspector-section"><h3>Поставки</h3>{d.deliveries.filter(x => x.projectId === item.id).map(x => <div className="plan-related" key={x.id}>{x.name}</div>)}<button onClick={() => add('delivery', { projectId: item.id })}>+ Поставка</button></section></>}
-    {kind === 'delivery' && <>{select('Проект', 'projectId', d.projects)}{input('Вид поставки', 'kind')}{input('Название / версия', 'name')}{select('Владелец', 'ownerActorId', d.actors.filter(x => x.type === 'person'))}{dateRef('Начало', 'startDate')}{dateRef('Контрольная дата', 'checkpointDate')}{dateRef('Плановый срок', 'deadline')}{status()}{area('Заметка', 'note')}{estimateSection('delivery')}{linkSection('delivery')}<button onClick={() => add('block', { projectId: item.projectId, deliveryId: item.id })}>+ Недельный блок</button></>}
+    {kind === 'project' && <>{input('Название', 'name')}{input('Тип', 'type')}{status()}{area('Заметки', 'notes')}{!isDraft && <section className="plan-inspector-section"><h3>Поставки</h3>{d.deliveries.filter(x => x.projectId === item.id).map(x => <div className="plan-related" key={x.id}>{x.name}</div>)}<button onClick={() => add('delivery', { projectId: item.id })}>+ Поставка</button></section>}</>}
+    {kind === 'delivery' && <>{select('Проект', 'projectId', d.projects)}{input('Вид поставки', 'kind')}{input('Название / версия', 'name')}{select('Владелец', 'ownerActorId', d.actors.filter(x => x.type === 'person'))}{dateRef('Начало', 'startDate')}{dateRef('Контрольная дата', 'checkpointDate')}{dateRef('Плановый срок', 'deadline')}{status()}{area('Заметка', 'note')}{!isDraft && <>{estimateSection('delivery')}{linkSection('delivery')}<button onClick={() => add('block', { projectId: item.projectId, deliveryId: item.id })}>+ Недельный блок</button></>}</>}
     {kind === 'lane' && <>{input('Название', 'name')}{input('Порядок', 'order', 'number')}</>}
-    {kind === 'block' && <>{select('Проект', 'projectId', d.projects)}{select('Поставка', 'deliveryId', d.deliveries.filter(x => x.projectId === item.projectId))}{select('Дорожка', 'laneId', d.lanes)}{select('Человек', 'personId', d.actors.filter(x => x.type === 'person'), 'Не назначено')}{input('Содержание', 'content')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => update({ startWeek: validWeek(e.target.value) })} /></label><label className="plan-field">Последняя неделя<input type="date" min={item.startWeek} value={item.endWeek} onChange={e => update({ endWeek: validWeek(e.target.value) })} /></label></div><small>Хранятся понедельники. Последняя неделя включена.</small>{status()}{area('Заметка', 'note')}{estimateSection('weekBlock')}{linkSection('weekBlock')}</>}
-    {kind === 'event' && <>{input('Тип события', 'type')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => update({ startWeek: validWeek(e.target.value) })} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek || ''} onChange={e => update({ endWeek: e.target.value ? validWeek(e.target.value) : undefined })} /></label></div>{select('Проект', 'projectId', d.projects)}{select('Участник', 'actorId', d.actors.filter(x => x.type === 'person'))}{area('Текст', 'text')}</>}
+    {kind === 'block' && <>{select('Проект', 'projectId', d.projects)}{select('Поставка', 'deliveryId', d.deliveries.filter(x => x.projectId === item.projectId))}{select('Дорожка', 'laneId', d.lanes)}{select('Человек', 'personId', d.actors.filter(x => x.type === 'person'), 'Не назначено')}{input('Содержание', 'content')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek} onChange={e => weekChange('endWeek', e.target.value)} /></label></div><small>Хранятся понедельники. Последняя неделя включена.</small>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{status()}{area('Заметка', 'note')}{!isDraft && <>{estimateSection('weekBlock')}{linkSection('weekBlock')}</>}</>}
+    {kind === 'event' && <>{input('Тип события', 'type')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek || ''} onChange={e => weekChange('endWeek', e.target.value)} /></label></div>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{select('Проект', 'projectId', d.projects)}{select('Участник', 'actorId', d.actors.filter(x => x.type === 'person'))}{area('Текст', 'text')}</>}
     {kind === 'person' && <>{input('Имя', 'name')}{select('Отдел', 'departmentId', d.actors.filter(x => x.type === 'department'))}<label className="plan-field">Цвет метки<input type="color" value={item.color || '#2563eb'} onChange={e => update({ color: e.target.value })} /></label><p className="plan-help">Человек находится в общем справочнике и доступен на карте процессов.</p></>}
     {kind === 'estimate' && <><label className="plan-field">Объект<select value={`${item.targetType}:${item.targetId}`} onChange={e => { const [targetType, targetId] = e.target.value.split(':'); update({ targetType, targetId }); }}>{d.deliveries.map(x => <option key={x.id} value={`delivery:${x.id}`}>Поставка: {x.name}</option>)}{d.weekBlocks.map(x => <option key={x.id} value={`weekBlock:${x.id}`}>Блок: {x.content}</option>)}</select></label>{input('Значение', 'value', 'number')}{input('Единица', 'unit')}<label className="plan-field">Вид<select value={item.kind} onChange={e => update({ kind: e.target.value })}><option value="estimate">Оценка</option><option value="forecast">Прогноз</option><option value="actual">Факт</option></select></label></>}
     {kind === 'link' && <><label className="plan-field">Объект плана<select value={`${item.sourceType}:${item.sourceId}`} onChange={e => { const [sourceType, sourceId] = e.target.value.split(':'); update({ sourceType, sourceId }); }}>{d.deliveries.map(x => <option key={x.id} value={`delivery:${x.id}`}>Поставка: {x.name}</option>)}{d.weekBlocks.map(x => <option key={x.id} value={`weekBlock:${x.id}`}>Блок: {x.content}</option>)}</select></label><label className="plan-field">Этап или точка процесса<select value={`${item.targetType}:${item.targetId}`} onChange={e => { const [targetType, targetId] = e.target.value.split(':'); update({ targetType, targetId }); }}>{d.stages.map(x => <option key={x.id} value={`stage:${x.id}`}>Этап: {x.name}</option>)}{d.checkpoints.map(x => <option key={x.id} value={`checkpoint:${x.id}`}>Точка: {x.name}</option>)}</select></label>{area('Пояснение', 'note')}<button onClick={() => onNavigateToProcess(item.targetId)}>Открыть на карте ↗</button></>}

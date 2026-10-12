@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { Actor, Checkpoint, DateReference, Dependency, Group, Handover, Participation, Process, SharedMilestone, Snapshot, Stage, WorkspaceData } from '../model'
-import { createId, unknownDate } from '../model'
+import { createId, unknownDate, validateDateOrder, validateDateReference, validateSnapshot } from '../model'
 import './ProcessView.css'
 
 type Kind = 'group' | 'process' | 'stage' | 'checkpoint' | 'milestone' | 'actor' | 'participation' | 'handover' | 'dependency'
@@ -41,11 +41,11 @@ function makeDraft(kind: Kind, data: WorkspaceData, context?: Selection): Draft 
     case 'actor': return { ...common, type: 'person', name: '', departmentId: null, color: '#64748B' }
     case 'participation': return { ...common, actorId: data.actors[0]?.id || '', targetType: context?.kind === 'stage' || context?.kind === 'checkpoint' ? context.kind : 'process', targetId: context?.kind === 'stage' || context?.kind === 'checkpoint' || context?.kind === 'process' ? context.id : processId || '', type: 'participates', expectedContribution: '' }
     case 'handover': return { ...common, fromActorId: data.actors[0]?.id || '', toActorId: data.actors[1]?.id || '', targetType: context?.kind === 'stage' ? 'stage' : 'process', targetId: context?.kind === 'stage' || context?.kind === 'process' ? context.id : processId || '', checkpointId: null, description: '' }
-    case 'dependency': return { ...common, sourceType: context?.kind === 'stage' ? 'stage' : 'process', sourceId: context?.kind === 'stage' || context?.kind === 'process' ? context.id : data.processes[0]?.id || '', targetType: 'process', targetId: data.processes.find(x => x.id !== context?.id)?.id || '', type: 'prerequisite', note: '' }
+    case 'dependency': { const sourceId = context?.kind === 'stage' || context?.kind === 'process' ? context.id : data.processes[0]?.id || ''; return { ...common, sourceType: context?.kind === 'stage' ? 'stage' : 'process', sourceId, targetType: 'process', targetId: data.processes.find(x => x.id !== sourceId)?.id || '', type: 'prerequisite', note: '' } }
   }
 }
 
-function dateRefField(label: string, value: DateReference, change: (value: DateReference) => void) {
+function dateRefField(label: string, value: DateReference, change: (value: DateReference) => void, error?: string) {
   const ref = value || unknownDate()
   return <div className="pv-form-section" key={label} style={{ textTransform: 'none', letterSpacing: 0 }}>
     <label>{label}<select value={ref.kind} onChange={e => change(e.target.value === 'exact' ? { kind: 'exact', date: today() } : e.target.value === 'range' ? { kind: 'range', start: today(), end: today() } : { kind: 'unknown', text: ref.text || '' })}>
@@ -54,6 +54,7 @@ function dateRefField(label: string, value: DateReference, change: (value: DateR
     {ref.kind === 'exact' && <label>Дата<input type="date" value={ref.date} onChange={e => change({ ...ref, date: e.target.value })} /></label>}
     {ref.kind === 'range' && <div className="pv-inline"><label>С<input type="date" value={ref.start} onChange={e => change({ ...ref, start: e.target.value })} /></label><label>По<input type="date" value={ref.end} onChange={e => change({ ...ref, end: e.target.value })} /></label></div>}
     <label>Словесный ориентир<input value={ref.text || ''} onChange={e => change({ ...ref, text: e.target.value })} placeholder="Например, после утверждения" /></label>
+    {error && <span className="pv-field-error" role="alert">{error}</span>}
   </div>
 }
 
@@ -125,11 +126,21 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const [scale, setScale] = useState<'week' | 'month'>(snapshot.workspace.display.processScale)
   const [anchor, setAnchor] = useState(monday(today()))
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [treeOpen, setTreeOpen] = useState(true)
+  const [inspectorWidth, setInspectorWidth] = useState(350)
+  const [formError, setFormError] = useState<{ field: string; message: string } | null>(null)
 
   const select = (kind: Kind, id: string) => {
     const item = (data[collection[kind]] as Array<{ id: string }>).find(x => x.id === id)
     if (!item) return
-    setSelected({ kind, id }); setDraft({ ...item }); setIsNew(false); setConfirmDelete(false); setInspectorOpen(true)
+    setSelected({ kind, id }); setDraft({ ...item }); setIsNew(false); setConfirmDelete(false); setFormError(null); setInspectorOpen(true)
+    if (kind === 'stage') {
+      const stage = item as Stage
+      const start = refStart(stage.plannedStart), end = refEnd(stage.plannedEnd)
+      if (start && end && day(end).getTime() - day(start).getTime() <= 28 * 86400000) {
+        setScale('week'); setAnchor(monday(start))
+      }
+    }
   }
   useEffect(() => {
     if (!initialSelection) return
@@ -145,32 +156,49 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
       }
     }
   }, [initialSelection])
-  const create = (kind: Kind, context?: Selection) => { const next = makeDraft(kind, data, context || (!isNew ? selected : null) || undefined); setSelected({ kind, id: next.id }); setDraft(next); setIsNew(true); setConfirmDelete(false); setInspectorOpen(true) }
-  const close = () => { setInspectorOpen(false); setSelected(null); setDraft(null); setConfirmDelete(false) }
-  const change = (field: string, value: any) => setDraft(prev => {
+  const create = (kind: Kind, context?: Selection) => { const next = makeDraft(kind, data, context || (!isNew ? selected : null) || undefined); setSelected({ kind, id: next.id }); setDraft(next); setIsNew(true); setConfirmDelete(false); setFormError(null); setInspectorOpen(true) }
+  const close = () => { setInspectorOpen(false); setSelected(null); setDraft(null); setConfirmDelete(false); setFormError(null) }
+  const change = (field: string, value: any) => { setFormError(null); setDraft(prev => {
     if (!prev) return prev
     const next = { ...prev, [field]: value }
     if (field === 'targetType' && prev.targetType !== value) next.targetId = ''
     if (field === 'sourceType' && prev.sourceType !== value) next.sourceId = ''
     if (field === 'processId' && selected?.kind === 'checkpoint' && prev.processId !== value) next.stageId = null
     if (field === 'type' && selected?.kind === 'actor' && value === 'department') next.departmentId = null
+    if (field === 'sourceId' && prev.sourceId !== value && next.targetId === value) next.targetId = ''
+    if (field === 'sourceType' && prev.sourceType !== value && next.targetId === next.sourceId) next.targetId = ''
     return next
-  })
+  }) }
   const save = () => {
     if (!selected || !draft) return
-    if ('name' in draft && !String(draft.name || '').trim()) { window.alert('Укажите название.'); return }
-    if (selected.kind === 'stage' || selected.kind === 'checkpoint') { if (!draft.processId) { window.alert('Выберите процесс.'); return } }
-    if (selected.kind === 'participation' && (!draft.actorId || !draft.targetId)) { window.alert('Выберите участника и объект.'); return }
-    if (selected.kind === 'handover' && (!draft.fromActorId || !draft.toActorId || !draft.targetId || draft.fromActorId === draft.toActorId)) { window.alert('Выберите двух разных участников и объект передачи.'); return }
-    if (selected.kind === 'dependency' && (!draft.sourceId || !draft.targetId || draft.sourceId === draft.targetId)) { window.alert('Выберите разные связанные объекты.'); return }
+    const fail = (field: string, message: string) => { setFormError({ field, message }); return }
+    if ('name' in draft && !String(draft.name || '').trim()) return fail('name', 'Укажите название.')
+    if ((selected.kind === 'stage' || selected.kind === 'checkpoint') && !draft.processId) return fail('processId', 'Выберите процесс.')
+    if (selected.kind === 'participation') {
+      if (!draft.actorId) return fail('actorId', 'Выберите участника.')
+      if (!draft.targetId) return fail('targetId', 'Выберите объект.')
+    }
+    if (selected.kind === 'handover') {
+      if (!draft.fromActorId) return fail('fromActorId', 'Выберите участника, который передаёт результат.')
+      if (!draft.toActorId || draft.fromActorId === draft.toActorId) return fail('toActorId', 'Выберите другого участника.')
+      if (!draft.targetId) return fail('targetId', 'Выберите объект передачи.')
+    }
+    if (selected.kind === 'dependency') {
+      if (!draft.sourceId) return fail('sourceId', 'Выберите источник.')
+      if (!draft.targetId || draft.sourceId === draft.targetId) return fail('targetId', 'Выберите другую цель связи.')
+    }
     if (selected.kind === 'actor' && !isNew) {
       const previous = data.actors.find(x => x.id === selected.id)
-      if (previous?.type === 'department' && draft.type !== 'department' && data.actors.some(x => x.departmentId === selected.id)) { window.alert('Сначала переназначьте участников этого отдела.'); return }
-      if (previous?.type === 'person' && draft.type !== 'person' && data.weekBlocks.some(x => x.personId === selected.id)) { window.alert('Сначала переназначьте недельные блоки этого человека.'); return }
+      if (previous?.type === 'department' && draft.type !== 'department' && data.actors.some(x => x.departmentId === selected.id)) return fail('type', 'Сначала переназначьте участников этого отдела.')
+      if (previous?.type === 'person' && draft.type !== 'person' && data.weekBlocks.some(x => x.personId === selected.id)) return fail('type', 'Сначала переназначьте недельные блоки этого человека.')
     }
-    for (const value of Object.values(draft)) if (value && typeof value === 'object' && 'kind' in value) {
-      if (value.kind === 'range' && (!value.start || !value.end || value.end < value.start)) { window.alert('Проверьте начало и конец диапазона.'); return }
-      if (value.kind === 'exact' && !value.date) { window.alert('Укажите точную дату.'); return }
+    for (const [field, value] of Object.entries(draft)) if (value && typeof value === 'object' && 'kind' in value) {
+      try { validateDateReference(value, field) }
+      catch (error) { return fail(field, error instanceof Error ? error.message.split(': ').slice(1).join(': ') : 'Проверьте срок.') }
+    }
+    if (selected.kind === 'stage') {
+      try { validateDateOrder(draft.plannedStart, draft.plannedEnd, 'plannedEnd') }
+      catch { return fail('plannedEnd', 'Завершение этапа не может быть раньше начала.') }
     }
     const key = collection[selected.kind]
     const entity = { ...draft, updatedAt: stamp() }
@@ -178,8 +206,15 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     const updated = isNew ? [...current, entity] : current.map(x => x.id === selected.id ? entity : x)
     const nextData: WorkspaceData = { ...data, [key]: updated }
     if (selected.kind === 'stage' && !isNew) nextData.checkpoints = data.checkpoints.map(x => x.stageId === selected.id ? { ...x, processId: draft.processId as string, updatedAt: stamp() } : x)
-    onChange({ ...snapshot, data: nextData })
-    setDraft(entity); setIsNew(false)
+    const nextSnapshot = { ...snapshot, data: nextData }
+    try { validateSnapshot(nextSnapshot) }
+    catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось сохранить объект.'
+      const field = Object.keys(draft).find(key => message.includes('.' + key)) || '_form'
+      return fail(field, message.replace(/^data\.\w+\[\d+\](?:\.\w+)?:\s*/, ''))
+    }
+    onChange(nextSnapshot)
+    setDraft(entity); setIsNew(false); setFormError(null)
   }
   const remove = () => { if (!selected) return; onChange({ ...snapshot, data: removeRelated(data, selected, replacementId || undefined) }); close(); setReplacementId('') }
 
@@ -277,8 +312,9 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   }
   const updateScale = (value: 'week' | 'month') => { setScale(value); onChange({ ...snapshot, workspace: { ...snapshot.workspace, display: { ...snapshot.workspace.display, processScale: value }, updatedAt: stamp() } }) }
 
-  const field = (label: string, key: string, opts?: { required?: boolean; multiline?: boolean; placeholder?: string }) => <label key={key}>{label}{opts?.multiline ? <textarea value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)} placeholder={opts.placeholder} /> : <input value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)} required={opts?.required} placeholder={opts?.placeholder} />}</label>
-  const selectField = (label: string, key: string, options: { value: string; label: string }[]) => <label key={key}>{label}<select value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)}>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+  const fieldError = (key: string) => formError?.field === key ? <span className="pv-field-error" role="alert">{formError.message}</span> : null
+  const field = (label: string, key: string, opts?: { required?: boolean; multiline?: boolean; placeholder?: string }) => <label key={key}>{label}{opts?.multiline ? <textarea value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)} placeholder={opts.placeholder} /> : <input value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)} required={opts?.required} placeholder={opts?.placeholder} />}{fieldError(key)}</label>
+  const selectField = (label: string, key: string, options: { value: string; label: string }[]) => <label key={key}>{label}<select value={draft?.[key] ?? ''} onChange={e => change(key, e.target.value)}>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>{fieldError(key)}</label>
   const processOptions = [{ value: '', label: 'Выберите процесс' }, ...data.processes.map(p => ({ value: p.id, label: p.name }))]
   const actorOptions = [{ value: '', label: 'Выберите участника' }, ...data.actors.map(a => ({ value: a.id, label: a.name }))]
   const targetOptions = (type: string) => type === 'stage' ? data.stages.map(x => ({ value: x.id, label: `${data.processes.find(p => p.id === x.processId)?.name || 'Процесс'} / ${x.name}` })) : type === 'checkpoint' ? data.checkpoints.map(x => ({ value: x.id, label: x.name })) : data.processes.map(x => ({ value: x.id, label: x.name }))
@@ -289,13 +325,13 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     switch (selected.kind) {
       case 'group': return <>{field('Название', 'name', { required: true })}<label>Цвет группы<input type="color" value={draft.color || '#2563eb'} onChange={e => change('color', e.target.value)} /></label></>
       case 'process': return <>{field('Название процесса', 'name', { required: true })}{selectField('Группа', 'groupId', [{ value: '', label: 'Без группы' }, ...data.groups.map(g => ({ value: g.id, label: g.name }))])}{field('Текущая ситуация', 'currentState', { multiline: true })}{field('Целевое состояние', 'targetState', { multiline: true })}{field('Причина изменения', 'reason', { multiline: true })}{field('Ожидаемый результат', 'expectedResult', { multiline: true })}{selectField('Статус', 'status', statusOptions.map(x => ({ value: x, label: x })))}{field('Приоритет', 'priority')}{field('Заметка', 'note', { multiline: true })}</>
-      case 'stage': return <>{field('Название этапа', 'name', { required: true })}{selectField('Процесс', 'processId', processOptions)}{field('Смысл этапа', 'purpose', { multiline: true })}{dateRefField('Плановое начало', draft.plannedStart, x => change('plannedStart', x))}{dateRefField('Плановое завершение', draft.plannedEnd, x => change('plannedEnd', x))}{field('Ожидаемый выход', 'expectedOutput', { multiline: true })}{selectField('Статус', 'status', statusOptions.map(x => ({ value: x, label: x })))}</>
-      case 'checkpoint': return <>{field('Название точки', 'name', { required: true })}{selectField('Процесс', 'processId', processOptions)}{selectField('Этап', 'stageId', [{ value: '', label: 'Без этапа' }, ...data.stages.filter(s => s.processId === draft.processId).map(s => ({ value: s.id, label: s.name }))])}{dateRefField('Плановая дата', draft.plannedDate, x => change('plannedDate', x))}{dateRefField('Дата факта', draft.actualDate, x => change('actualDate', x))}{field('Подтверждение результата', 'confirmation', { multiline: true })}{selectField('Статус', 'status', statusOptions.map(x => ({ value: x, label: x })))}</>
-      case 'milestone': return <>{field('Название вехи', 'name', { required: true })}{dateRefField('Срок', draft.date, x => change('date', x))}{field('Смысл', 'purpose', { multiline: true })}{field('Подтверждение', 'confirmation', { multiline: true })}<label>Связанные процессы<select multiple value={draft.processIds || []} onChange={e => change('processIds', Array.from(e.target.selectedOptions, x => x.value))}>{data.processes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><div className="pv-small-note">Для нескольких процессов удерживайте Ctrl при выборе.</div></>
+      case 'stage': return <>{field('Название этапа', 'name', { required: true })}{selectField('Процесс', 'processId', processOptions)}{field('Смысл этапа', 'purpose', { multiline: true })}{dateRefField('Плановое начало', draft.plannedStart, x => change('plannedStart', x), formError?.field === 'plannedStart' ? formError.message : undefined)}{dateRefField('Плановое завершение', draft.plannedEnd, x => change('plannedEnd', x), formError?.field === 'plannedEnd' ? formError.message : undefined)}{field('Ожидаемый выход', 'expectedOutput', { multiline: true })}{selectField('Статус', 'status', statusOptions.map(x => ({ value: x, label: x })))}</>
+      case 'checkpoint': return <>{field('Название точки', 'name', { required: true })}{selectField('Процесс', 'processId', processOptions)}{selectField('Этап', 'stageId', [{ value: '', label: 'Без этапа' }, ...data.stages.filter(s => s.processId === draft.processId).map(s => ({ value: s.id, label: s.name }))])}{dateRefField('Плановая дата', draft.plannedDate, x => change('plannedDate', x), formError?.field === 'plannedDate' ? formError.message : undefined)}{dateRefField('Дата факта', draft.actualDate, x => change('actualDate', x), formError?.field === 'actualDate' ? formError.message : undefined)}{field('Подтверждение результата', 'confirmation', { multiline: true })}{selectField('Статус', 'status', statusOptions.map(x => ({ value: x, label: x })))}</>
+      case 'milestone': return <>{field('Название вехи', 'name', { required: true })}{dateRefField('Срок', draft.date, x => change('date', x), formError?.field === 'date' ? formError.message : undefined)}{field('Смысл', 'purpose', { multiline: true })}{field('Подтверждение', 'confirmation', { multiline: true })}<label>Связанные процессы<select multiple value={draft.processIds || []} onChange={e => change('processIds', Array.from(e.target.selectedOptions, x => x.value))}>{data.processes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><div className="pv-small-note">Для нескольких процессов удерживайте Ctrl при выборе.</div></>
       case 'actor': return <>{selectField('Тип участника', 'type', Object.entries(actorTypes).map(([value, label]) => ({ value, label })))}{field('Название или имя', 'name', { required: true })}{draft.type !== 'department' && selectField('Основной отдел', 'departmentId', [{ value: '', label: 'Не указан' }, ...data.actors.filter(a => a.type === 'department' && a.id !== draft.id).map(a => ({ value: a.id, label: a.name }))])}<label>Цвет метки<input type="color" value={draft.color || '#64748b'} onChange={e => change('color', e.target.value)} /></label></>
       case 'participation': return <>{selectField('Участник', 'actorId', actorOptions)}{selectField('Уровень', 'targetType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }, { value: 'checkpoint', label: 'Контрольная точка' }])}{selectField('Объект', 'targetId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.targetType)])}{selectField('Тип участия', 'type', Object.entries(participationTypes).map(([value, label]) => ({ value, label })))}{field('Ожидаемый вклад', 'expectedContribution', { multiline: true })}</>
       case 'handover': return <>{selectField('Передаёт', 'fromActorId', actorOptions)}{selectField('Получает', 'toActorId', actorOptions)}{selectField('Уровень', 'targetType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }])}{selectField('Связанный объект', 'targetId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.targetType)])}{selectField('Контрольная точка', 'checkpointId', [{ value: '', label: 'Не указана' }, ...data.checkpoints.map(c => ({ value: c.id, label: c.name }))])}{field('Что передаётся или согласуется', 'description', { multiline: true })}</>
-      case 'dependency': return <>{selectField('Тип связи', 'type', [{ value: 'prerequisite', label: 'Предпосылка →' }, { value: 'influence', label: 'Влияет ⇢' }])}{selectField('Источник', 'sourceType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }])}{selectField('Объект-источник', 'sourceId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.sourceType)])}{selectField('Цель', 'targetType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }])}{selectField('Объект-цель', 'targetId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.targetType)])}{field('Пояснение', 'note', { multiline: true })}</>
+      case 'dependency': return <>{selectField('Тип связи', 'type', [{ value: 'prerequisite', label: 'Предпосылка →' }, { value: 'influence', label: 'Влияет ⇢' }])}{selectField('Источник', 'sourceType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }])}{selectField('Объект-источник', 'sourceId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.sourceType)])}{selectField('Цель', 'targetType', [{ value: 'process', label: 'Процесс' }, { value: 'stage', label: 'Этап' }])}{selectField('Объект-цель', 'targetId', [{ value: '', label: 'Выберите объект' }, ...targetOptions(draft.targetType).filter(option => option.value !== draft.sourceId)])}{field('Пояснение', 'note', { multiline: true })}</>
     }
   }
 
@@ -304,6 +340,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
       <h1>Карта процессов</h1>
       <button className="pv-btn pv-btn-primary" onClick={() => create('process')}>+ Процесс</button><button className="pv-btn" onClick={() => create('group')}>+ Группа</button><button className="pv-btn" onClick={() => create('milestone')}>+ Веха</button>
       <button className="pv-btn" onClick={() => setActorsOpen(x => !x)} aria-pressed={actorsOpen}>Участники {actorsOpen ? '▾' : '▸'}</button>
+      <button className="pv-btn" onClick={() => setTreeOpen(x => !x)} aria-pressed={treeOpen}>{treeOpen ? 'Скрыть дерево' : 'Показать дерево'}</button>
       <button className="pv-btn" onClick={() => create('dependency')}>+ Связь</button><button className="pv-btn" onClick={() => create('handover')}>+ Передача</button>
       <span className="pv-toolbar-spacer" />
       <input type="search" aria-label="Поиск по карте" placeholder="Поиск процессов" value={search} onChange={e => setSearch(e.target.value)} />
@@ -319,7 +356,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     <div className="pv-main">
       {actorsOpen && <aside className="pv-actors"><div className="pv-panel-title">Участники</div><button className="pv-btn" style={{ width: '100%', marginBottom: 9 }} onClick={() => create('actor')}>+ Добавить участника</button><button className={`pv-actor-item ${!actorFilter ? 'active' : ''}`} onClick={() => setActorFilter('')}>Все участники</button>{data.actors.map(a => <button className={`pv-actor-item ${actorFilter === a.id ? 'active' : ''}`} key={a.id} onClick={() => { setActorFilter(a.id); select('actor', a.id) }}><span className={`pv-actor-symbol ${a.type}`}>{a.type === 'person' ? initials(a.name) : a.type === 'department' ? '▣' : 'R'}</span><span>{a.name}<small style={{ display: 'block', color: '#64748b' }}>{actorTypes[a.type]}</small></span></button>)}{!data.actors.length && <div className="pv-small-note">Добавьте отдел, роль или человека.</div>}</aside>}
       <div className="pv-canvas">
-        <div className="pv-tree"><div className="pv-head">Группы / процессы / этапы</div>{rows.map(row => {
+        {treeOpen && <div className="pv-tree"><div className="pv-head">Группы / процессы / этапы</div>{rows.map(row => {
           const actualKind = row.kind === 'milestone' ? 'milestone' : row.kind
           const collapsed = row.kind === 'group' ? collapsedGroups.includes(row.id) : row.kind === 'process' ? collapsedProcesses.includes(row.id) : false
           const isSelected = selected?.kind === actualKind && selected.id === row.id
@@ -329,7 +366,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
             <button className="pv-row-label" title={row.label} onClick={() => row.id !== '_ungrouped' ? select(actualKind, row.id) : create('group')}><span>{row.label}</span>{row.kind === 'group' && collapsed && row.id !== '_ungrouped' && <small>Скрытых связей: {hiddenLinkCount(row.id)}</small>}{row.kind === 'process' && <small>{safeStatus(row.status)} · {data.participations.filter(p => p.targetType === 'process' && p.targetId === row.id).map(p => data.actors.find(a => a.id === p.actorId)?.name).filter(Boolean).slice(0, 2).join(', ') || 'Участники не указаны'}</small>}{row.kind === 'checkpoint' && <small>{row.status || 'Точка'}</small>}</button>
             <div className="pv-row-actions">{row.kind === 'group' && <button className="pv-mini" title="Добавить процесс" onClick={() => create('process', { kind: 'group', id: row.id })}>+</button>}{row.kind === 'process' && <button className="pv-mini" title="Добавить этап" onClick={() => create('stage', { kind: 'process', id: row.id })}>+</button>}{row.kind === 'stage' && <button className="pv-mini" title="Добавить контрольную точку" onClick={() => create('checkpoint', { kind: 'stage', id: row.id })}>+</button>}</div>
           </div>
-        })}{!rows.length && <div className="pv-empty">Карта пока пуста. Создайте группу или процесс.</div>}</div>
+        })}{!rows.length && <div className="pv-empty">Карта пока пуста. Создайте группу или процесс.</div>}</div>}
         <div className="pv-time" style={{ '--pv-col-width': `${100 / columns.length}%` } as CSSProperties}>
           <div className="pv-head pv-time-head">{columns.map(c => <span key={c.start}>{c.label}</span>)}</div>
           {rows.map(row => { const dates = span(row); const isSelected = selected?.kind === row.kind && selected.id === row.id; const visible = dates?.start && dates?.end && day(dates.end).getTime() >= domainStart && day(dates.start).getTime() < domainEnd; const left = dates?.start ? pct(dates.start) : 0; const right = dates?.end ? pct(plusDays(dates.end, 1)) : left; const rowHandovers = data.handovers.filter(h => h.targetId === row.id && (showAllLinks || h.targetId === selected?.id || (selected?.kind === 'process' && relatedProcessIds.includes(h.targetId)))); return <div key={`${row.kind}-${row.id}`} className={`pv-row pv-time-row ${row.kind} ${isSelected ? 'selected' : ''} ${!highlighted(row) ? 'dimmed' : ''} ${rowHandovers.length ? 'has-handovers' : ''}`} onClick={() => row.id !== '_ungrouped' && select(row.kind === 'milestone' ? 'milestone' : row.kind, row.id)}>
@@ -342,8 +379,10 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
           {!!conflicts.length && <span className="pv-links-note">⚠ Конфликт сроков предпосылок: {conflicts.length}</span>}
         </div>
       </div>
-      {inspectorOpen && selected && draft && <aside className="pv-inspector"><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
-        {confirmDelete ? <div className="pv-confirm"><strong>Удалить «{draft.name || kindTitle[selected.kind]}»?</strong>{countConsequences(selected.kind, selected.id, data).map(line => <div key={line}>{line}</div>)}{selected.kind === 'actor' && data.actors.some(a => a.id !== selected.id && a.type === draft.type) && <label style={{ display: 'block', marginTop: 10 }}>Перепривязать связи к участнику<select value={replacementId} onChange={e => setReplacementId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4 }}><option value="">Удалить связи и назначения</option>{data.actors.filter(a => a.id !== selected.id && a.type === draft.type).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}<div className="pv-form-actions"><button className="pv-btn pv-btn-danger" onClick={remove}>Удалить</button><button className="pv-btn" onClick={() => setConfirmDelete(false)}>Отмена</button></div></div> : <><div className="pv-form">{form()}<div className="pv-form-actions"><button className="pv-btn pv-btn-primary" onClick={save}>Сохранить</button>{!isNew && <button className="pv-btn pv-btn-danger" onClick={() => setConfirmDelete(true)}>Удалить</button>}<button className="pv-btn" onClick={close}>Закрыть</button></div></div>
+      {inspectorOpen && selected && draft && <aside className="pv-inspector" style={{ width: inspectorWidth }}><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
+        <label className="pv-inspector-size">Ширина карточки <input type="range" min="280" max="560" step="10" value={inspectorWidth} onChange={e => setInspectorWidth(Number(e.target.value))} aria-label="Ширина инспектора" /></label>
+        {selected.kind === 'stage' && !isNew && <div className="pv-selected-detail"><strong>{draft.name}</strong><span>{formatRef(draft.plannedStart)} — {formatRef(draft.plannedEnd)}</span></div>}
+        {confirmDelete ? <div className="pv-confirm"><strong>Удалить «{draft.name || kindTitle[selected.kind]}»?</strong>{countConsequences(selected.kind, selected.id, data).map(line => <div key={line}>{line}</div>)}{selected.kind === 'actor' && data.actors.some(a => a.id !== selected.id && a.type === draft.type) && <label style={{ display: 'block', marginTop: 10 }}>Перепривязать связи к участнику<select value={replacementId} onChange={e => setReplacementId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4 }}><option value="">Удалить связи и назначения</option>{data.actors.filter(a => a.id !== selected.id && a.type === draft.type).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}<div className="pv-form-actions"><button className="pv-btn pv-btn-danger" onClick={remove}>Удалить</button><button className="pv-btn" onClick={() => setConfirmDelete(false)}>Отмена</button></div></div> : <><div className="pv-form">{form()}{fieldError('_form')}<div className="pv-form-actions"><button className="pv-btn pv-btn-primary" onClick={save}>Сохранить</button>{!isNew && <button className="pv-btn pv-btn-danger" onClick={() => setConfirmDelete(true)}>Удалить</button>}<button className="pv-btn" onClick={close}>Закрыть</button></div></div>
           {!isNew && <><div className="pv-form-section">Связи и участие</div><div className="pv-related">
             {(selected.kind === 'process' || selected.kind === 'stage' || selected.kind === 'checkpoint') && <><button onClick={() => create('participation', selected)}>+ Участие</button>{selected.kind !== 'checkpoint' && <><button onClick={() => create('dependency', selected)}>+ Зависимость</button><button onClick={() => create('handover', selected)}>+ Передача</button></>}</>}
             {relatedParticipation.map(p => <div key={p.id}><button onClick={() => select('participation', p.id)}>{data.actors.find(a => a.id === p.actorId)?.name || 'Участник'} · {participationTypes[p.type]}{p.expectedContribution ? ` — ${p.expectedContribution}` : ''}</button></div>)}

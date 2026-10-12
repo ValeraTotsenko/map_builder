@@ -1,4 +1,4 @@
-import type { Snapshot, WorkspaceData } from './index'
+import type { DateReference, Snapshot, WorkspaceData } from './index'
 
 type Dict = Record<string, unknown>
 
@@ -32,7 +32,7 @@ function utc(value: unknown, path: string): void {
   const [, hours, minutes, seconds] = value.match(/T(\d{2}):(\d{2}):(\d{2})/) ?? []
   if (Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) fail(path, 'несуществующее время UTC')
 }
-function dateReference(value: unknown, path: string): void {
+export function validateDateReference(value: unknown, path: string): asserts value is DateReference {
   const ref = object(value, path)
   oneOf(ref.kind, `${path}.kind`, ['unknown', 'exact', 'range'])
   optionalString(ref.text, `${path}.text`)
@@ -43,6 +43,21 @@ function dateReference(value: unknown, path: string): void {
     if ((ref.start as string) > (ref.end as string)) fail(path, 'начало диапазона позже конца')
   }
 }
+
+/**
+ * Reject a span only when its end is unambiguously before its start.
+ * Overlapping approximate ranges remain valid because a feasible ordering exists.
+ */
+export function validateDateOrder(start: DateReference, end: DateReference, endPath: string): void {
+  if (start.kind === 'unknown' || end.kind === 'unknown') return
+  const earliestStart = start.kind === 'exact' ? start.date : start.start
+  const latestEnd = end.kind === 'exact' ? end.date : end.end
+  if (earliestStart > latestEnd) {
+    fail(endPath, `завершение (${latestEnd}) раньше начала (${earliestStart})`)
+  }
+}
+
+const dateReference: (value: unknown, path: string) => asserts value is DateReference = validateDateReference
 function monday(value: unknown, path: string): void {
   date(value, path)
   if (new Date(`${value}T00:00:00.000Z`).getUTCDay() !== 1) fail(path, 'нужна дата понедельника')
@@ -94,6 +109,7 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
   const stages = collection(data, 'stages', ids, (v, p) => {
     string(v.processId, `${p}.processId`); string(v.name, `${p}.name`); string(v.purpose, `${p}.purpose`, false)
     dateReference(v.plannedStart, `${p}.plannedStart`); dateReference(v.plannedEnd, `${p}.plannedEnd`)
+    validateDateOrder(v.plannedStart as DateReference, v.plannedEnd as DateReference, `${p}.plannedEnd`)
     string(v.expectedOutput, `${p}.expectedOutput`, false); string(v.status, `${p}.status`); number(v.order, `${p}.order`)
   })
   const checkpoints = collection(data, 'checkpoints', ids, (v, p) => {
@@ -136,6 +152,9 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
     optionalString(v.ownerActorId, `${p}.ownerActorId`)
     dateReference(v.startDate, `${p}.startDate`); dateReference(v.checkpointDate, `${p}.checkpointDate`)
     dateReference(v.deadline, `${p}.deadline`); string(v.status, `${p}.status`); string(v.note, `${p}.note`, false)
+    validateDateOrder(v.startDate as DateReference, v.checkpointDate as DateReference, `${p}.checkpointDate`)
+    validateDateOrder(v.startDate as DateReference, v.deadline as DateReference, `${p}.deadline`)
+    validateDateOrder(v.checkpointDate as DateReference, v.deadline as DateReference, `${p}.deadline`)
   })
   const lanes = collection(data, 'lanes', ids, (v, p) => { string(v.name, `${p}.name`); number(v.order, `${p}.order`) })
   const weekBlocks = collection(data, 'weekBlocks', ids, (v, p) => {
