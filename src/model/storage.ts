@@ -2,7 +2,7 @@ import { BACKUP_FORMAT, SCHEMA_VERSION, createEmptySnapshot, getSnapshotSummary 
 import type { Backup, ImportPreview, Snapshot, SnapshotSummary } from './index'
 import { validateSnapshot } from './validation'
 
-const DB_NAME = 'process-planner-workspace'
+const DB_NAME = 'process-planner-workspace-v1'
 const STORE = 'snapshots'
 const CURRENT = 'current'
 const ROLLBACK = 'rollback'
