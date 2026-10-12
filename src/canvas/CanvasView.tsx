@@ -64,14 +64,15 @@ function buildFlowNodes(data: WorkspaceData, editingId: string | null, selectedI
   return [...zones, ...cards];
 }
 
-function buildFlowEdges(data: WorkspaceData, selectedNodeIds: string[]): Edge[] {
+function buildFlowEdges(data: WorkspaceData, selectedNodeIds: string[], selectedEdgeIds: string[]): Edge[] {
   const active = new Set(selectedNodeIds);
   return data.canvasEdges.map(edge => ({
-    id: edge.id, source: edge.sourceId, target: edge.targetId, label: edge.label || undefined, zIndex: 2,
+    id: edge.id, source: edge.sourceId, target: edge.targetId, label: edge.label || undefined, zIndex: 0,
+    className: selectedEdgeIds.includes(edge.id) ? 'canvas-edge-active' : active.size ? active.has(edge.sourceId) || active.has(edge.targetId) ? 'canvas-edge-related' : 'canvas-edge-dimmed' : '',
     type: 'smoothstep', animated: false,
     markerEnd: edge.arrow === 'forward' ? { type: MarkerType.ArrowClosed, color: '#61728b', width: 18, height: 18 } : undefined,
     markerStart: edge.arrow === 'reverse' ? { type: MarkerType.ArrowClosed, color: '#61728b', width: 18, height: 18 } : undefined,
-    style: { stroke: '#61728b', strokeWidth: 2, opacity: active.size && !active.has(edge.sourceId) && !active.has(edge.targetId) ? .2 : 1 },
+    style: { stroke: '#61728b', strokeWidth: 1.7 },
     labelStyle: { fontSize: 12, fill: '#334155', fontWeight: 600 },
     labelBgStyle: { fill: 'white', fillOpacity: .94 }, labelBgPadding: [5, 3] as [number, number], labelBgBorderRadius: 5,
   }));
@@ -134,7 +135,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   }, [publish]);
 
   useEffect(() => setFlowNodes(buildFlowNodes(data, editingId, selectionRef.current.nodes, editName, finishEdit, resizeZone)), [data, editingId, editName, finishEdit, resizeZone]);
-  const edges = useMemo(() => buildFlowEdges(data, selection.nodes), [data, selection.nodes]);
+  const edges = useMemo(() => buildFlowEdges(data, selection.nodes, selection.edges), [data, selection.nodes, selection.edges]);
 
   const addAt = useCallback((kind: PaletteKind, x: number, y: number) => {
     if (kind === 'edge') { setTool('edge'); setConnectFrom(null); setNotice('Выберите первую карточку, затем вторую.'); return; }
