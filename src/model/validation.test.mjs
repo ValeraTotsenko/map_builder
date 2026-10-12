@@ -22,6 +22,8 @@ function snapshot() {
       display: { processScale: 'month', planScale: 'week' },
     },
     data: {
+      canvas: { ...base('canvas'), name: 'Схема', viewport: { x: 0, y: 0, zoom: 1 } },
+      canvasZones: [], canvasNodes: [], canvasEdges: [],
       groups: [], processes: [{ ...base('process'), name: 'Процесс', currentState: '', targetState: '', reason: '', expectedResult: '', status: 'planned', order: 0 }],
       stages: [{ ...base('stage'), processId: 'process', name: 'Этап', purpose: '', plannedStart: exact('2026-10-19'), plannedEnd: exact('2026-10-30'), expectedOutput: '', status: 'planned', order: 0 }],
       checkpoints: [], sharedMilestones: [], dependencies: [], actors: [], participations: [], handovers: [],
@@ -37,6 +39,38 @@ test('valid exact dates, matching boundaries and unknown dates are accepted', ()
   data.data.stages[0].plannedEnd = exact('2026-10-19')
   data.data.deliveries[0].checkpointDate = unknown()
   validateSnapshot(data)
+})
+
+test('canvas accepts zones, nodes, cross-zone edges and optional object reference', () => {
+  const data = snapshot()
+  data.data.canvasZones.push({ ...base('zone'), name: 'Область', color: '#abc', x: -200, y: 12, width: 300, height: 200, zIndex: 0 })
+  data.data.canvasNodes.push(
+    { ...base('node-1'), kind: 'action', name: 'Шаг', description: '', color: '#abc', x: 0, y: 0, width: 160, height: 80, zIndex: 1, zoneId: 'zone', ref: { type: 'process', id: 'process' } },
+    { ...base('node-2'), kind: 'note', name: 'Заметка', description: '', color: '#abc', x: 500, y: 0, width: 160, height: 80, zIndex: 1, zoneId: null },
+  )
+  data.data.canvasEdges.push({ ...base('edge'), sourceId: 'node-1', targetId: 'node-2', label: 'далее', arrow: 'forward' })
+  validateSnapshot(data)
+})
+
+test('canvas rejects dangling, self and malformed references', () => {
+  const data = snapshot()
+  data.data.canvasNodes.push({ ...base('node'), kind: 'action', name: 'Шаг', description: '', color: '#abc', x: 0, y: 0, width: 160, height: 80, zIndex: 1, zoneId: null })
+  data.data.canvasEdges.push({ ...base('edge'), sourceId: 'node', targetId: 'missing', label: '', arrow: 'forward' })
+  assert.throws(() => validateSnapshot(data), /canvasEdges\[0\]\.targetId/)
+  data.data.canvasEdges[0].targetId = 'node'
+  assert.throws(() => validateSnapshot(data), /самосвязь/)
+  data.data.canvasEdges.length = 0
+  data.data.canvasNodes[0].ref = { type: 'project', id: 'missing' }
+  assert.throws(() => validateSnapshot(data), /canvasNodes\[0\]\.ref\.id/)
+})
+
+test('canvas rejects invalid geometry and nested zones', () => {
+  const data = snapshot()
+  data.data.canvasZones.push({ ...base('zone'), name: 'Область', color: '#abc', x: 0, y: 0, width: 100, height: 200, zIndex: 0 })
+  assert.throws(() => validateSnapshot(data), /canvasZones\[0\]\.width/)
+  data.data.canvasZones[0].width = 200
+  data.data.canvasZones[0].zoneId = 'zone'
+  assert.throws(() => validateSnapshot(data), /зоны не могут вкладываться/)
 })
 
 test('stage end before start is rejected at the end field', () => {

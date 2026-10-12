@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeftRight, Database, Download, FolderKanban, GitBranch, RotateCcw, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, Database, Download, FolderKanban, GitBranch, RotateCcw, Shapes, Upload, X } from 'lucide-react';
 import { createBackup, getRollbackSnapshot, getSnapshotSummary, loadSnapshot, parseBackup, restoreBackup, rollbackRestore, saveSnapshot, validateSnapshot, type ImportPreview, type Snapshot } from './model';
 import { ProcessView } from './process';
 import { PlanView } from './plan';
+import { CanvasView } from './canvas';
 import './style.css';
 
-type Page = 'process' | 'plan';
+type Page = 'process' | 'plan' | 'canvas';
 
 function downloadBlob(name: string, value: Blob) {
   const url = URL.createObjectURL(value);
@@ -20,6 +21,7 @@ function downloadBlob(name: string, value: Blob) {
 const summaryLabels: Record<string, string> = {
   groups: 'Группы', processes: 'Процессы', actors: 'Участники',
   projects: 'Проекты', deliveries: 'Поставки', weekBlocks: 'Недельные блоки',
+  canvasZones: 'Зоны схемы', canvasNodes: 'Карточки схемы', canvasEdges: 'Связи схемы',
 };
 
 function errorText(error: unknown): string {
@@ -46,12 +48,15 @@ function App() {
 
   useEffect(() => { loadSnapshot().then(setSnapshot).then(() => getRollbackSnapshot().then(value => setRollbackAvailable(Boolean(value)))).catch(error => setMessage(`Не удалось открыть данные: ${errorText(error)}`)); }, []);
 
-  const change = (next: Snapshot) => {
+  const change = (next: Snapshot): Promise<boolean> => {
     try { validateSnapshot(next); }
-    catch (error) { setMessage(`Изменение не сохранено: ${errorText(error)}`); return; }
+    catch (error) { setMessage(`Изменение не сохранено: ${errorText(error)}`); return Promise.resolve(false); }
     setSnapshot(next);
     saving.current = saving.current.catch(() => undefined).then(() => saveSnapshot(next));
-    saving.current.catch(error => setMessage(`Не удалось сохранить изменения: ${errorText(error)}`));
+    return saving.current.then(() => true, error => {
+      setMessage(`Не удалось сохранить изменения: ${errorText(error)}`);
+      return false;
+    });
   };
 
   const backup = async () => {
@@ -100,12 +105,12 @@ function App() {
   return <div className="app-shell">
     <header className="app-header">
       <div className="brand"><span className="brand-symbol"><ArrowLeftRight size={18} /></span><div><strong>{snapshot.workspace.name}</strong><small>Конструктор процессов и планов</small></div></div>
-      <nav className="main-nav" aria-label="Разделы"><button className={page === 'process' ? 'active' : ''} onClick={() => { setPage('process'); setTarget(undefined); }}><GitBranch size={16}/>Карта процессов</button><button className={page === 'plan' ? 'active' : ''} onClick={() => { setPage('plan'); setTarget(undefined); }}><FolderKanban size={16}/>План проектов</button></nav>
+      <nav className="main-nav" aria-label="Разделы"><button className={page === 'process' ? 'active' : ''} onClick={() => { setPage('process'); setTarget(undefined); }}><GitBranch size={16}/>Карта процессов</button><button className={page === 'plan' ? 'active' : ''} onClick={() => { setPage('plan'); setTarget(undefined); }}><FolderKanban size={16}/>План проектов</button><button className={page === 'canvas' ? 'active' : ''} onClick={() => { setPage('canvas'); setTarget(undefined); }}><Shapes size={16}/>Схема</button></nav>
       <div className="header-actions"><div className="data-menu"><button className="quiet-button" aria-expanded={dataOpen} onClick={() => setDataOpen(value => !value)}><Database size={16}/> Данные</button>{dataOpen && <div className="menu-popover"><button onClick={backup} disabled={busy}><Download size={15}/> Скачать JSON-копию</button><button onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={15}/> Восстановить из JSON</button>{rollbackAvailable && <button onClick={rollback} disabled={busy}><RotateCcw size={15}/> Вернуть состояние до восстановления</button>}</div>}</div><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={event => readFile(event.target.files?.[0])}/></div>
     </header>
     {message && <div role="status" className="global-message"><span>{message}</span><button aria-label="Закрыть сообщение" onClick={() => setMessage('')}><X size={15}/></button></div>}
-    <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/>}</main>
-    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Копия полностью заменит данные карты процессов и плана проектов. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
+    <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : page === 'plan' ? <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/> : <CanvasView snapshot={snapshot} onChange={change}/>}</main>
+    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Копия полностью заменит данные карты процессов, плана проектов и схемы. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
   </div>;
 }
 

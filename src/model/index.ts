@@ -5,7 +5,7 @@
  */
 
 export const BACKUP_FORMAT = 'process-planner-workspace' as const
-export const SCHEMA_VERSION = 1 as const
+export const SCHEMA_VERSION = 2 as const
 
 export type EntityBase = {
   id: string
@@ -171,7 +171,39 @@ export type CrossLink = EntityBase & {
   note: string
 }
 
+export type Canvas = EntityBase & {
+  name: string
+  viewport: { x: number; y: number; zoom: number }
+}
+
+export type CanvasZone = EntityBase & {
+  name: string
+  color: string
+  x: number; y: number; width: number; height: number; zIndex: number
+}
+
+export type CanvasNode = EntityBase & {
+  kind: 'action' | 'actor' | 'project' | 'direction' | 'note'
+  name: string
+  description: string
+  color: string
+  x: number; y: number; width: number; height: number; zIndex: number
+  zoneId: string | null
+  ref?: { type: 'process' | 'project' | 'actor'; id: string } | null
+}
+
+export type CanvasEdge = EntityBase & {
+  sourceId: string
+  targetId: string
+  label: string
+  arrow: 'forward' | 'reverse' | 'none'
+}
+
 export type WorkspaceData = {
+  canvas: Canvas
+  canvasZones: CanvasZone[]
+  canvasNodes: CanvasNode[]
+  canvasEdges: CanvasEdge[]
   groups: Group[]
   processes: Process[]
   stages: Stage[]
@@ -205,6 +237,9 @@ export type SnapshotSummary = {
   projects: number
   deliveries: number
   weekBlocks: number
+  canvasZones: number
+  canvasNodes: number
+  canvasEdges: number
 }
 
 export type ImportPreview = {
@@ -229,12 +264,17 @@ export function createEmptySnapshot(name = 'Рабочее пространст�
       display: { processScale: 'month', planScale: 'week' },
     },
     data: {
+      canvas: createEmptyCanvas(now), canvasZones: [], canvasNodes: [], canvasEdges: [],
       groups: [], processes: [], stages: [], checkpoints: [],
       sharedMilestones: [], dependencies: [], actors: [], participations: [],
       handovers: [], projects: [], deliveries: [], lanes: [], weekBlocks: [],
       planEvents: [], estimates: [], crossLinks: [],
     },
   }
+}
+
+export function createEmptyCanvas(now = new Date().toISOString()): Canvas {
+  return { id: createId(), name: 'Схема', viewport: { x: 0, y: 0, zoom: 1 }, createdAt: now, updatedAt: now }
 }
 
 export function getSnapshotSummary(snapshot: Snapshot): SnapshotSummary {
@@ -246,6 +286,9 @@ export function getSnapshotSummary(snapshot: Snapshot): SnapshotSummary {
     projects: snapshot.data.projects.length,
     deliveries: snapshot.data.deliveries.length,
     weekBlocks: snapshot.data.weekBlocks.length,
+    canvasZones: snapshot.data.canvasZones.length,
+    canvasNodes: snapshot.data.canvasNodes.length,
+    canvasEdges: snapshot.data.canvasEdges.length,
   }
 }
 
