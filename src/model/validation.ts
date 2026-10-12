@@ -87,7 +87,7 @@ function ref(id: unknown, path: string, ids: Set<string>, nullable = false): voi
 }
 
 /** Throws a user-readable error for malformed, incompatible or dangling data. */
-export function validateSnapshot(value: unknown): asserts value is Snapshot {
+function validateSnapshotShape(value: unknown, legacy = false): void {
   const root = object(value, 'snapshot')
   const workspace = object(root.workspace, 'workspace')
   const data = object(root.data, 'data')
@@ -99,6 +99,17 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
   const display = object(workspace.display, 'workspace.display')
   oneOf(display.processScale, 'workspace.display.processScale', ['week', 'month'])
   oneOf(display.planScale, 'workspace.display.planScale', ['week', 'month'])
+
+  if (!legacy) {
+    const canvas = object(data.canvas, 'data.canvas')
+    base(canvas, 'data.canvas', ids)
+    string(canvas.name, 'data.canvas.name')
+    const viewport = object(canvas.viewport, 'data.canvas.viewport')
+    coordinate(viewport.x, 'data.canvas.viewport.x')
+    coordinate(viewport.y, 'data.canvas.viewport.y')
+    number(viewport.zoom, 'data.canvas.viewport.zoom')
+    if ((viewport.zoom as number) < 0.05 || (viewport.zoom as number) > 4) fail('data.canvas.viewport.zoom', 'масштаб должен быть от 0.05 до 4')
+  }
 
   const groups = collection(data, 'groups', ids, (v, p) => { string(v.name, `${p}.name`); string(v.color, `${p}.color`); number(v.order, `${p}.order`) })
   const processes = collection(data, 'processes', ids, (v, p) => {
@@ -184,6 +195,48 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
     string(v.note, `${p}.note`, false)
   })
 
+  if (!legacy) {
+    const zones = collection(data, 'canvasZones', ids, (v, p) => {
+      string(v.name, `${p}.name`); string(v.color, `${p}.color`)
+      rectangle(v, p, 120, 80)
+      if (v.zoneId !== undefined && v.zoneId !== null) fail(`${p}.zoneId`, 'зоны не могут вкладываться друг в друга')
+    })
+    const nodes = collection(data, 'canvasNodes', ids, (v, p) => {
+      oneOf(v.kind, `${p}.kind`, ['action', 'actor', 'project', 'direction', 'note'])
+      string(v.name, `${p}.name`); string(v.description, `${p}.description`, false)
+      string(v.color, `${p}.color`); rectangle(v, p, 80, 40)
+      if (v.zoneId !== null) string(v.zoneId, `${p}.zoneId`)
+      if (v.ref !== undefined && v.ref !== null) {
+        const linked = object(v.ref, `${p}.ref`)
+        oneOf(linked.type, `${p}.ref.type`, ['process', 'project', 'actor'])
+        string(linked.id, `${p}.ref.id`)
+      }
+    })
+    const edges = collection(data, 'canvasEdges', ids, (v, p) => {
+      string(v.sourceId, `${p}.sourceId`); string(v.targetId, `${p}.targetId`)
+      if (v.sourceId === v.targetId) fail(p, 'самосвязь запрещена')
+      string(v.label, `${p}.label`, false)
+      oneOf(v.arrow, `${p}.arrow`, ['forward', 'reverse', 'none'])
+    })
+    const zoneIds = new Set(zones.map(v => v.id as string))
+    const nodeIds = new Set(nodes.map(v => v.id as string))
+    const processIds = new Set(processes.map(v => v.id as string))
+    const projectIds = new Set(projects.map(v => v.id as string))
+    const actorIds = new Set(actors.map(v => v.id as string))
+    nodes.forEach((v, i) => {
+      ref(v.zoneId, `data.canvasNodes[${i}].zoneId`, zoneIds, true)
+      if (v.ref) {
+        const linked = v.ref as { type: 'process' | 'project' | 'actor'; id: string }
+        const targets = { process: processIds, project: projectIds, actor: actorIds }
+        ref(linked.id, `data.canvasNodes[${i}].ref.id`, targets[linked.type])
+      }
+    })
+    edges.forEach((v, i) => {
+      ref(v.sourceId, `data.canvasEdges[${i}].sourceId`, nodeIds)
+      ref(v.targetId, `data.canvasEdges[${i}].targetId`, nodeIds)
+    })
+  }
+
   const sets = {
     group: new Set(groups.map(v => v.id as string)), process: new Set(processes.map(v => v.id as string)),
     stage: new Set(stages.map(v => v.id as string)), checkpoint: new Set(checkpoints.map(v => v.id as string)),
@@ -238,4 +291,27 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
     ref(v.sourceId, `data.crossLinks[${i}].sourceId`, sets[v.sourceType as 'delivery' | 'weekBlock'])
     ref(v.targetId, `data.crossLinks[${i}].targetId`, sets[v.targetType as 'stage' | 'checkpoint'])
   })
+}
+
+function coordinate(value: unknown, path: string): void {
+  number(value, path)
+  if (Math.abs(value as number) > 10_000_000) fail(path, 'координата вне допустимого диапазона')
+}
+
+function rectangle(item: Dict, path: string, minWidth: number, minHeight: number): void {
+  coordinate(item.x, `${path}.x`); coordinate(item.y, `${path}.y`)
+  number(item.width, `${path}.width`); number(item.height, `${path}.height`)
+  if ((item.width as number) < minWidth || (item.width as number) > 1_000_000) fail(`${path}.width`, `ширина должна быть от ${minWidth} до 1000000`)
+  if ((item.height as number) < minHeight || (item.height as number) > 1_000_000) fail(`${path}.height`, `высота должна быть от ${minHeight} до 1000000`)
+  number(item.zIndex, `${path}.zIndex`)
+  if (!Number.isInteger(item.zIndex) || Math.abs(item.zIndex as number) > 1_000_000) fail(`${path}.zIndex`, 'ожидался целый порядок слоя')
+}
+
+export function validateSnapshot(value: unknown): asserts value is Snapshot {
+  validateSnapshotShape(value)
+}
+
+/** Validates the original workspace before adding an empty canvas. */
+export function validateLegacySnapshot(value: unknown): void {
+  validateSnapshotShape(value, true)
 }
