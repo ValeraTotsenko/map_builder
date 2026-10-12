@@ -255,15 +255,19 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     return result
   }, [data, visibleProcesses, collapsedGroups, collapsedProcesses, search, statusFilter, groupFilter])
 
+  const focusedStage = selected?.kind === 'stage' && inspectorOpen ? data.stages.find(stage => stage.id === selected.id) : undefined
+  const focusedStart = focusedStage && refStart(focusedStage.plannedStart)
+  const focusedEnd = focusedStage && refEnd(focusedStage.plannedEnd)
+  const shortStageSelected = !!focusedStart && !!focusedEnd && day(focusedEnd).getTime() - day(focusedStart).getTime() <= 28 * 86400000
   const columns = useMemo(() => {
     const values: { start: string; end: string; label: string }[] = []
     const start = scale === 'week' ? monday(anchor) : `${anchor.slice(0, 7)}-01`
-    for (let i = 0; i < (scale === 'week' ? 26 : 12); i++) {
+    for (let i = 0; i < (scale === 'week' ? shortStageSelected ? 12 : 26 : 12); i++) {
       if (scale === 'week') { const from = plusDays(start, i * 7); values.push({ start: from, end: plusDays(from, 7), label: `${formatDate(from)} · ${i + 1}` }) }
       else { const d = day(start); d.setUTCMonth(d.getUTCMonth() + i); const from = iso(d); d.setUTCMonth(d.getUTCMonth() + 1); values.push({ start: from, end: iso(d), label: new Intl.DateTimeFormat('ru-RU', { month: 'short', year: 'numeric' }).format(day(from)) }) }
     }
     return values
-  }, [anchor, scale])
+  }, [anchor, scale, shortStageSelected])
   const domainStart = day(columns[0].start).getTime()
   const domainEnd = day(columns[columns.length - 1].end).getTime()
   const pct = (date: string) => Math.max(0, Math.min(100, (day(date).getTime() - domainStart) / (domainEnd - domainStart) * 100))
