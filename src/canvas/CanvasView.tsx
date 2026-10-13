@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, NodeResizer, Position, applyNodeChanges, type Connection, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
+import { SmartEdgeProvider, createSmartEdge } from '@tisoap/react-flow-smart-edge';
 import '@xyflow/react/dist/style.css';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Copy, Focus, Link2, Maximize2, Plus, Redo2, Trash2, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { createId, type Snapshot, type WorkspaceData } from '../model';
@@ -52,6 +53,8 @@ function Zone({ data, selected }: NodeProps<Node<ZoneData>>) {
 }
 
 const nodeTypes = { card: Card, zone: Zone };
+const edgeTypes = { routed: createSmartEdge('smoothstep', { floating: true, nodePadding: 16, gridRatio: 8, hops: { borderRadius: 8 } }) };
+const routingOptions = { routeOnlyWhenBlocked: false, routeWhileDragging: true, debounceMs: 30 };
 
 function buildFlowNodes(data: WorkspaceData, editingId: string | null, selectedIds: string[], onEdit: (id: string, name: string) => void, onFinish: () => void, onResize: ZoneData['onResize']): Node[] {
   const zones: Node[] = data.canvasZones.map(zone => {
@@ -72,7 +75,7 @@ function buildFlowEdges(data: WorkspaceData, selectedNodeIds: string[], selected
   return data.canvasEdges.map(edge => ({
     id: edge.id, source: edge.sourceId, target: edge.targetId, label: edge.label || undefined, zIndex: 0,
     className: selectedEdgeIds.includes(edge.id) ? 'canvas-edge-active' : active.size ? active.has(edge.sourceId) || active.has(edge.targetId) ? 'canvas-edge-related' : 'canvas-edge-dimmed' : '',
-    type: 'smoothstep', animated: false,
+    type: 'routed', animated: false,
     markerEnd: edge.arrow === 'forward' ? { type: MarkerType.ArrowClosed, color: '#61728b', width: 18, height: 18 } : undefined,
     markerStart: edge.arrow === 'reverse' ? { type: MarkerType.ArrowClosed, color: '#61728b', width: 18, height: 18 } : undefined,
     style: { stroke: '#61728b', strokeWidth: 1.7 },
@@ -141,6 +144,18 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
 
   useEffect(() => setFlowNodes(buildFlowNodes(data, editingId, selectionRef.current.nodes, editName, finishEdit, resizeZone)), [data, editingId, editName, finishEdit, resizeZone]);
   const edges = useMemo(() => buildFlowEdges(data, selection.nodes, selection.edges), [data, selection.nodes, selection.edges]);
+  const routingNodes = useMemo(() => {
+    const zones = new Map(flowNodes.filter(node => node.type === 'zone').map(node => [node.id, node]));
+    const cards = new Map(data.canvasNodes.map(node => [node.id, node]));
+    // Zones group cards visually; only cards should block a connection's path.
+    return flowNodes.filter(node => node.type === 'card').map(node => {
+      const parent = node.parentId ? zones.get(node.parentId) : undefined;
+      const model = cards.get(node.id);
+      const width = node.measured?.width ?? model?.width ?? 220;
+      const height = node.measured?.height ?? model?.height ?? 90;
+      return { ...node, parentId: undefined, position: { x: node.position.x + (parent?.position.x ?? 0), y: node.position.y + (parent?.position.y ?? 0) }, width, height, measured: { width, height }, dragging: node.dragging || parent?.dragging };
+    });
+  }, [flowNodes, data.canvasNodes]);
 
   const addAt = useCallback((kind: PaletteKind, x: number, y: number, details?: Omit<CreateDraft, 'kind'>) => {
     if (kind === 'edge') { setTool('edge'); setConnectFrom(null); setNotice('Выберите первую карточку, затем вторую.'); return; }
@@ -301,7 +316,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     <section className="canvas-workspace"><div className="canvas-toolbar"><div className="canvas-title-wrap"><input aria-label="Название схемы" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onBlur={() => { const name = titleDraft.trim() || 'Схема'; setTitleDraft(name); if (name !== data.canvas.name) changeProperty(data.canvas.id, 'name', name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}/><span className={`canvas-save-status ${saveState}`}>{saveState === 'saved' ? <><Check size={12}/> Сохранено</> : saveState === 'saving' ? 'Сохранение…' : 'Ошибка сохранения'}</span></div><div className="canvas-toolbar-actions"><button onClick={undo} disabled={!past.length} title="Отменить (Ctrl+Z)"><Undo2 size={17}/></button><button onClick={redo} disabled={!future.length} title="Повторить (Ctrl+Y)"><Redo2 size={17}/></button><span className="canvas-tool-divider"/><button onClick={() => flow.current?.fitView({ padding: .16, duration: 300 })} title="Уместить схему"><Maximize2 size={16}/><span>Уместить</span></button><button onClick={() => flow.current?.zoomOut({ duration: 180 })} title="Уменьшить"><ZoomOut size={17}/></button><button onClick={() => flow.current?.zoomIn({ duration: 180 })} title="Увеличить"><ZoomIn size={17}/></button><button className="canvas-add-button" onClick={() => openCreate('action')}><Plus size={16}/> Добавить</button></div></div>
       {notice && <div className="canvas-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Закрыть"><X size={14}/></button></div>}
       <div className="canvas-flow" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const kind = event.dataTransfer.getData('application/x-canvas-kind') as PaletteKind; if (!KIND_LABEL[kind] || kind === 'edge') return; const point = flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); if (point) addAt(kind, Math.round(point.x), Math.round(point.y)); }}>
-        <ReactFlow nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={(changes: NodeChange[]) => setFlowNodes(items => applyNodeChanges(changes, items))} onNodeDragStop={onDragStop} onNodeClick={onNodeClick} onEdgeClick={(_event, edge) => { setSelection({ nodes: [], edges: [edge.id] }); setInspectorOpen(true); }} onPaneClick={() => setSelection({ nodes: [], edges: [] })} onNodeDoubleClick={(_event, node) => setEditingId(node.id)} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => { const nextNodes = nodes.map(item => item.id); const nextEdges = edges.map(item => item.id); if (!nextNodes.length && !nextEdges.length) return; setSelection(previous => previous.nodes.join("|") === nextNodes.join("|") && previous.edges.join("|") === nextEdges.join("|") ? previous : { nodes: nextNodes, edges: nextEdges }); }} onInit={instance => { flow.current = instance; }} onMoveEnd={(_event, viewport) => { const d = current.current; if (Math.abs(d.canvas.viewport.x - viewport.x) < 1 && Math.abs(d.canvas.viewport.y - viewport.y) < 1 && Math.abs(d.canvas.viewport.zoom - viewport.zoom) < .001) return; publish({ ...d, canvas: { ...d.canvas, viewport, updatedAt: NOW() } }, false); }} defaultViewport={data.canvas.viewport} minZoom={.05} maxZoom={4} zoomOnScroll={false} panOnScroll={false} panOnDrag selectionOnDrag={false} zoomOnDoubleClick={false} multiSelectionKeyCode={['Control','Meta','Shift']} deleteKeyCode={null} fitView={false} proOptions={{ hideAttribution: true }}><Background color="#dce3ee" gap={22} size={1}/><MiniMap pannable zoomable className="canvas-minimap" nodeColor={node => node.type === 'zone' ? '#dce7f9' : '#8da5d6'}/><Controls showZoom={false} showFitView={false} showInteractive={false}/></ReactFlow>
+        <SmartEdgeProvider nodes={routingNodes} options={routingOptions}><ReactFlow nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={(changes: NodeChange[]) => setFlowNodes(items => applyNodeChanges(changes, items))} onNodeDragStop={onDragStop} onNodeClick={onNodeClick} onEdgeClick={(_event, edge) => { setSelection({ nodes: [], edges: [edge.id] }); setInspectorOpen(true); }} onPaneClick={() => setSelection({ nodes: [], edges: [] })} onNodeDoubleClick={(_event, node) => setEditingId(node.id)} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => { const nextNodes = nodes.map(item => item.id); const nextEdges = edges.map(item => item.id); if (!nextNodes.length && !nextEdges.length) return; setSelection(previous => previous.nodes.join("|") === nextNodes.join("|") && previous.edges.join("|") === nextEdges.join("|") ? previous : { nodes: nextNodes, edges: nextEdges }); }} onInit={instance => { flow.current = instance; }} onMoveEnd={(_event, viewport) => { const d = current.current; if (Math.abs(d.canvas.viewport.x - viewport.x) < 1 && Math.abs(d.canvas.viewport.y - viewport.y) < 1 && Math.abs(d.canvas.viewport.zoom - viewport.zoom) < .001) return; publish({ ...d, canvas: { ...d.canvas, viewport, updatedAt: NOW() } }, false); }} defaultViewport={data.canvas.viewport} minZoom={.05} maxZoom={4} zoomOnScroll={false} panOnScroll={false} panOnDrag selectionOnDrag={false} zoomOnDoubleClick={false} multiSelectionKeyCode={['Control','Meta','Shift']} deleteKeyCode={null} fitView={false} proOptions={{ hideAttribution: true }}><Background color="#dce3ee" gap={22} size={1}/><MiniMap pannable zoomable className="canvas-minimap" nodeColor={node => node.type === 'zone' ? '#dce7f9' : '#8da5d6'}/><Controls showZoom={false} showFitView={false} showInteractive={false}/></ReactFlow></SmartEdgeProvider>
         {!data.canvasNodes.length && !data.canvasZones.length && <div className="canvas-empty"><div className="canvas-empty-mark">◇</div><h2>Начните с одной мысли</h2><p>Добавьте зону или карточку, затем соедините шаги и участников.</p><div><button onClick={() => openCreate('zone')}>Добавить зону</button><button className="secondary" onClick={makeDemo}>Создать пример</button></div></div>}
       </div>
       {(selection.nodes.length || selection.edges.length) > 0 && <div className="canvas-selection-bar"><strong>Выбрано: {selection.nodes.length + selection.edges.length}</strong><button onClick={() => duplicate(selection.nodes)} disabled={!selection.nodes.length}><Copy size={14}/> Копировать</button><button onClick={requestDelete}><Trash2 size={14}/> Удалить</button><button onClick={() => setInspectorOpen(value => !value)}>{inspectorOpen ? 'Скрыть свойства' : 'Показать свойства'}</button></div>}
