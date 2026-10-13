@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Snapshot, WeeklyAssignment } from '../model';
 
 type Context = { projectId: string; deliveryId: string | null; weekStart: string };
@@ -37,6 +37,12 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
   const [bulk, setBulk] = useState('');
   const [bulkPerson, setBulkPerson] = useState('');
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (!draft && !bulk.trim()) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [draft, bulk]);
   const project = (id: string) => snapshot.data.projects.find(item => item.id === id)?.name || 'Удалённый проект';
   const delivery = (id?: string | null) => snapshot.data.deliveries.find(item => item.id === id)?.name || '';
   const person = (id: string | null) => people.find(item => item.id === id)?.name || 'Не назначено';

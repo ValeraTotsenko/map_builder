@@ -43,15 +43,28 @@ function App() {
   const [rollbackAvailable, setRollbackAvailable] = useState(false);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [needsBackup, setNeedsBackup] = useState(false);
+  const needsBackupRef = useRef(false);
   const saving = useRef<Promise<void>>(Promise.resolve());
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadSnapshot().then(setSnapshot).then(() => getRollbackSnapshot().then(value => setRollbackAvailable(Boolean(value)))).catch(error => setMessage(`Не удалось открыть данные: ${errorText(error)}`)); }, []);
+  useEffect(() => {
+    const warnOnClose = (event: BeforeUnloadEvent) => {
+      if (!needsBackupRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnOnClose);
+    return () => window.removeEventListener('beforeunload', warnOnClose);
+  }, []);
 
   const change = (next: Snapshot): Promise<boolean> => {
     try { validateSnapshot(next); }
     catch (error) { setMessage(`Изменение не сохранено: ${errorText(error)}`); return Promise.resolve(false); }
     setSnapshot(next);
+    needsBackupRef.current = true;
+    setNeedsBackup(true);
     saving.current = saving.current.catch(() => undefined).then(() => saveSnapshot(next));
     return saving.current.then(() => true, error => {
       setMessage(`Не удалось сохранить изменения: ${errorText(error)}`);
@@ -67,6 +80,8 @@ function App() {
       downloadBlob(result.filename, new Blob([result.json], { type: 'application/json;charset=utf-8' }));
       setMessage(`Создана копия ${result.filename} · ${new Date(result.backup.exportedAt).toLocaleString('ru-RU')}`);
       setDataOpen(false);
+      needsBackupRef.current = false;
+      setNeedsBackup(false);
     } catch (error) { setMessage(`Копия не создана: ${errorText(error)}`); }
     finally { setBusy(false); }
   };
@@ -86,6 +101,7 @@ function App() {
       await saving.current;
       const result = await restoreBackup(preview.backup);
       setSnapshot(result);
+      needsBackupRef.current = true; setNeedsBackup(true);
       setRollbackAvailable(true);
       setPreview(null);
       setMessage('Рабочее пространство восстановлено. Предыдущее состояние можно вернуть через меню «Данные».');
@@ -95,7 +111,7 @@ function App() {
 
   const rollback = async () => {
     setBusy(true);
-    try { await saving.current; setSnapshot(await rollbackRestore()); setRollbackAvailable(false); setDataOpen(false); setMessage('Состояние до восстановления возвращено.'); }
+    try { await saving.current; setSnapshot(await rollbackRestore()); needsBackupRef.current = true; setNeedsBackup(true); setRollbackAvailable(false); setDataOpen(false); setMessage('Состояние до восстановления возвращено.'); }
     catch (error) { setMessage(`Не удалось вернуть состояние: ${errorText(error)}`); }
     finally { setBusy(false); }
   };
@@ -106,7 +122,7 @@ function App() {
     <header className="app-header">
       <div className="brand"><span className="brand-symbol"><ArrowLeftRight size={18} /></span><div><strong>{snapshot.workspace.name}</strong><small>Конструктор процессов и планов</small></div></div>
       <nav className="main-nav" aria-label="Разделы"><button className={page === 'process' ? 'active' : ''} onClick={() => { setPage('process'); setTarget(undefined); }}><GitBranch size={16}/>Карта процессов</button><button className={page === 'plan' ? 'active' : ''} onClick={() => { setPage('plan'); setTarget(undefined); }}><FolderKanban size={16}/>План проектов</button><button className={page === 'canvas' ? 'active' : ''} onClick={() => { setPage('canvas'); setTarget(undefined); }}><Shapes size={16}/>Схема</button></nav>
-      <div className="header-actions"><div className="data-menu"><button className="quiet-button" aria-expanded={dataOpen} onClick={() => setDataOpen(value => !value)}><Database size={16}/> Данные</button>{dataOpen && <div className="menu-popover"><button onClick={backup} disabled={busy}><Download size={15}/> Скачать JSON-копию</button><button onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={15}/> Восстановить из JSON</button>{rollbackAvailable && <button onClick={rollback} disabled={busy}><RotateCcw size={15}/> Вернуть состояние до восстановления</button>}</div>}</div><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={event => readFile(event.target.files?.[0])}/></div>
+      <div className="header-actions">{needsBackup && <button className="quiet-button backup-shortcut" onClick={backup} disabled={busy}><Download size={15}/> Скачать копию</button>}<div className="data-menu"><button className="quiet-button" aria-expanded={dataOpen} onClick={() => setDataOpen(value => !value)}><Database size={16}/> Данные</button>{dataOpen && <div className="menu-popover"><button onClick={backup} disabled={busy}><Download size={15}/> Скачать JSON-копию</button><button onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={15}/> Восстановить из JSON</button>{rollbackAvailable && <button onClick={rollback} disabled={busy}><RotateCcw size={15}/> Вернуть состояние до восстановления</button>}</div>}</div><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={event => readFile(event.target.files?.[0])}/></div>
     </header>
     {message && <div role="status" className="global-message"><span>{message}</span><button aria-label="Закрыть сообщение" onClick={() => setMessage('')}><X size={15}/></button></div>}
     <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : page === 'plan' ? <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/> : <CanvasView snapshot={snapshot} onChange={change}/>}</main>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Snapshot, WeeklyAssignment } from '../model';
 import WeeklyTasksPanel from './WeeklyTasksPanel';
+import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
 import './weekly_style.css';
@@ -8,7 +9,7 @@ import './weekly_style.css';
 type EntityKind = 'project' | 'delivery' | 'lane' | 'block' | 'event' | 'person' | 'estimate' | 'link';
 type DateReference = { kind: 'unknown'; text?: string } | { kind: 'exact'; date: string; text?: string } | { kind: 'range'; start: string; end: string; text?: string };
 type Selection = { kind: EntityKind; id: string } | null;
-type Draft = { kind: EntityKind; item: Record<string, any> };
+type Draft = { kind: EntityKind; mode: 'create' | 'edit'; item: Record<string, any> };
 type FilterState = { search: string; project: string; delivery: string; lane: string; person: string; status: string };
 type WeekCell = { projectId: string; deliveryId: string | null; weekStart: string };
 type TaskValues = Pick<WeeklyAssignment, 'title' | 'projectId' | 'deliveryId' | 'personId' | 'weekStart' | 'count' | 'note'>;
@@ -81,9 +82,27 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
   const [weekCell, setWeekCell] = useState<WeekCell | null>(null);
   const [recordScope, setRecordScope] = useState<RecordScope | null>(null);
+  const [catalog, setCatalog] = useState<CatalogKind | null>(null);
   const planScroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (initialSelection) { setDraft(null); setSelection(parseSelection(snapshot, initialSelection)); } }, [initialSelection]);
+  useEffect(() => {
+    if (!draft) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [draft]);
+  useEffect(() => {
+    if (!catalog && !selection && !weekCell && !recordScope) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (catalog) setCatalog(null);
+      else if (weekCell || recordScope) { setWeekCell(null); setRecordScope(null); }
+      else closeInspector();
+    };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [catalog, selection, weekCell, recordScope, draft]);
   const weeks = useMemo(() => Array.from({ length: weeksCount }, (_, i) => addWeeks(origin, i)), [origin, weeksCount]);
   useEffect(() => {
     if (!selectedWeek || !planScroll.current) return;
@@ -101,8 +120,9 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const events = data.planEvents;
   const assignments = data.weeklyAssignments;
   const people = data.actors.filter(a => a.type === 'person');
-  const isDraft = !!selection && draft?.kind === selection.kind && draft.item.id === selection.id;
-  const selected = isDraft ? draft!.item : selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
+  const hasDraft = !!selection && draft?.kind === selection.kind && draft.item.id === selection.id;
+  const isDraft = hasDraft && draft?.mode === 'create';
+  const selected = hasDraft ? draft!.item : selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
 
   function commit(mutator: (next: Snapshot) => void) {
     const next = structuredClone(snapshot);
@@ -120,30 +140,15 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   }
   function update(kind: EntityKind, id: string, values: Record<string, unknown>) {
     if (draft?.kind === kind && draft.item.id === id) {
-      setDraft({ kind, item: { ...draft.item, ...values } });
+      setDraft({ ...draft, item: { ...draft.item, ...values } });
       return;
     }
     const current = (data[COLLECTION[kind]] as any[]).find(x => x.id === id);
-    if (!current) return;
-    const issue = weekDateIssue(kind, { ...current, ...values });
-    if (issue) { setMessage(issue); return; }
-    const saved = commit(next => {
-      const item = (next.data[COLLECTION[kind]] as any[]).find(x => x.id === id);
-      if (!item) return;
-      if (kind === 'delivery' && typeof values.projectId === 'string' && values.projectId !== item.projectId) {
-        next.data.weekBlocks.forEach(b => { if (b.deliveryId === id) { b.projectId = values.projectId as string; b.updatedAt = stamp(); } });
-        next.data.weeklyAssignments.forEach(a => { if (a.deliveryId === id) { a.projectId = values.projectId as string; a.updatedAt = stamp(); } });
-      }
-      if (kind === 'block' && typeof values.projectId === 'string' && values.projectId !== item.projectId && item.deliveryId) {
-        if (next.data.deliveries.find(x => x.id === item.deliveryId)?.projectId !== values.projectId) values.deliveryId = undefined;
-      }
-      if (kind === 'block' && typeof values.deliveryId === 'string') {
-        const delivery = next.data.deliveries.find(x => x.id === values.deliveryId);
-        if (delivery) values.projectId = delivery.projectId;
-      }
-      Object.assign(item, values, { updatedAt: stamp() });
-    });
-    if (saved) setMessage('Сохранено');
+    if (current) setDraft({ kind, mode: 'edit', item: { ...structuredClone(current), ...values } });
+  }
+  function closeInspector() {
+    if (draft?.mode === 'edit' && !window.confirm('Изменения не сохранены. Закрыть карточку?')) return;
+    setDraft(null); setSelection(null); setMessage(''); setFieldError('');
   }
   function add(kind: EntityKind, prefill: Record<string, unknown> = {}) {
     const base = createBase();
@@ -163,19 +168,33 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     if (kind === 'estimate' && !data.weekBlocks.length && !data.deliveries.length) { setMessage('Сначала создайте поставку или блок.'); return; }
     if (kind === 'link' && (!data.weekBlocks.length && !data.deliveries.length || !data.stages.length && !data.checkpoints.length)) { setMessage('Для связи нужны объект плана и этап или точка процесса.'); return; }
     const item: Record<string, any> = { ...base, ...defaults[kind], ...prefill };
-    setDraft({ kind, item });
+    setCatalog(null);
+    setWeekCell(null); setRecordScope(null);
+    setDraft({ kind, mode: 'create', item });
     setSelection({ kind, id: base.id });
     setMessage('Заполните карточку и нажмите «Сохранить».');
   }
   function saveDraft() {
-    if (!draft) return;
+    if (!draft) { setSelection(null); return; }
     const issue = weekDateIssue(draft.kind, draft.item);
     if (issue) { setMessage(issue); return; }
-    const { kind, item } = draft;
-    if (commit(next => { (next.data[COLLECTION[kind]] as any[]).push(item); })) {
-      setDraft(null);
-      setMessage('Сохранено');
-    }
+    const { kind, item, mode } = draft;
+    const saved = commit(next => {
+      if (mode === 'create') { (next.data[COLLECTION[kind]] as any[]).push(item); return; }
+      const current = (next.data[COLLECTION[kind]] as any[]).find(x => x.id === item.id);
+      if (!current) return;
+      const values = { ...item };
+      if (kind === 'delivery' && values.projectId !== current.projectId) {
+        next.data.weekBlocks.forEach(b => { if (b.deliveryId === item.id) { b.projectId = values.projectId; b.updatedAt = stamp(); } });
+        next.data.weeklyAssignments.forEach(a => { if (a.deliveryId === item.id) { a.projectId = values.projectId; a.updatedAt = stamp(); } });
+      }
+      if (kind === 'block' && values.deliveryId) {
+        const delivery = next.data.deliveries.find(x => x.id === values.deliveryId);
+        if (delivery) values.projectId = delivery.projectId;
+      } else if (kind === 'block' && values.projectId !== current.projectId && current.deliveryId) values.deliveryId = undefined;
+      Object.assign(current, values, { updatedAt: stamp() });
+    });
+    if (saved) { setDraft(null); setSelection(null); setMessage('Сохранено'); }
   }
   function removeSelected() {
     if (!selection || !selected) return;
@@ -249,7 +268,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     setSelection(null);
   }
   function toggle(id: string) { setCollapsed(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
-  function choose(kind: EntityKind, id: string) { setDraft(null); setWeekCell(null); setRecordScope(null); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
+  function choose(kind: EntityKind, id: string) { setCatalog(null); setDraft(null); setWeekCell(null); setRecordScope(null); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
   function fitsFilter(text: string) { return !filters.search || text.toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()); }
   const filteredBlocks = blocks.filter(b =>
     (!filters.project || b.projectId === filters.project) && (!filters.delivery || b.deliveryId === filters.delivery) &&
@@ -432,6 +451,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         <button onClick={() => add('lane')}>+ Дорожка</button>
         <button onClick={() => add('person')}>+ Человек</button>
         <button onClick={() => add('event')}>+ Событие</button>
+        <button className="plan-catalog-trigger" onClick={() => { setSelection(null); setDraft(null); setWeekCell(null); setRecordScope(null); setCatalog('person'); }}>Объекты плана</button>
         <div className="plan-export"><button disabled={exporting} onClick={() => exportXlsx('current')}>{exporting ? 'Готовим файл…' : 'Экспорт в Excel: выборка'}</button><button disabled={exporting} onClick={() => exportXlsx('all')}>Весь план</button></div>
       </div>
     </header>
@@ -498,12 +518,13 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         {!showUndated && undated.length > 0 && <button className="plan-show-undated" onClick={() => setShowUndated(true)}>Показать без срока ({undated.length})</button>}
         <div className="plan-legend"><span><i className="legend-work" /> Рабочий блок</span><span><i className="legend-unassigned" /> Не назначено</span><span><i className="legend-estimate" /> Приблизительный срок</span><span><i className="legend-event" /> Событие</span></div>
       </div>
-      {(weekCell || recordScope) && <WeeklyTasksPanel key={weekCell ? `${weekCell.projectId}-${weekCell.deliveryId}-${weekCell.weekStart}` : `summary-${selectedWeek}-${recordScope?.personId}-${recordScope?.projectId}`} snapshot={snapshot} context={weekCell} title={weekCell ? `${nameFor(snapshot, 'project', weekCell.projectId)}${weekCell.deliveryId ? ` / ${nameFor(snapshot, 'delivery', weekCell.deliveryId)}` : ''} · ${humanDate(weekCell.weekStart)}` : `Задачи недели ${humanDate(selectedWeek || '')}`} records={panelRecords} onSave={saveAssignment} onSaveBulk={saveBulk} onDelete={id => { if (window.confirm('Удалить недельную задачу?')) commit(next => { next.data.weeklyAssignments = next.data.weeklyAssignments.filter(a => a.id !== id); }); }} onClose={() => { setWeekCell(null); setRecordScope(null); }} />}
-      {!weekCell && !recordScope && selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Инспектор'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>×</button></div>
-        <Inspector snapshot={snapshot} kind={selection.kind} item={selected} isDraft={isDraft} fieldError={fieldError} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} onWeekNormalized={value => setMessage(`Дата ${humanDate(value)} приведена к понедельнику ${humanDate(validWeek(value))}.`)} />
-        <div className="plan-inspector-foot">{isDraft ? <><button className="plan-primary" onClick={saveDraft}>Сохранить</button><button onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>Отмена</button></> : <><span className="plan-save-indicator">Сохраняется автоматически</span><button className="danger" onClick={removeSelected}>Удалить</button></>}</div>
-      </aside>}
     </div>
+    {(weekCell || recordScope) && <div className="plan-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { setWeekCell(null); setRecordScope(null); } }}><div className="plan-modal plan-weekly-modal" role="dialog" aria-modal="true" aria-label="Недельные задачи"><WeeklyTasksPanel key={weekCell ? `${weekCell.projectId}-${weekCell.deliveryId}-${weekCell.weekStart}` : `summary-${selectedWeek}-${recordScope?.personId}-${recordScope?.projectId}`} snapshot={snapshot} context={weekCell} title={weekCell ? `${nameFor(snapshot, 'project', weekCell.projectId)}${weekCell.deliveryId ? ` / ${nameFor(snapshot, 'delivery', weekCell.deliveryId)}` : ''} · ${humanDate(weekCell.weekStart)}` : `Задачи недели ${humanDate(selectedWeek || '')}`} records={panelRecords} onSave={saveAssignment} onSaveBulk={saveBulk} onDelete={id => { if (window.confirm('Удалить недельную задачу?')) commit(next => { next.data.weeklyAssignments = next.data.weeklyAssignments.filter(a => a.id !== id); }); }} onClose={() => { setWeekCell(null); setRecordScope(null); }} /></div></div>}
+    {!weekCell && !recordScope && !catalog && selection && selected && <div className="plan-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeInspector(); }}><div className="plan-modal plan-editor-modal" role="dialog" aria-modal="true" aria-label={`${isDraft ? 'Создать' : 'Редактировать'} ${selected.name || selected.content || selected.text || 'объект'}`}><aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Редактирование'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть редактор" onClick={closeInspector}>×</button></div>
+      <Inspector snapshot={snapshot} kind={selection.kind} item={selected} isDraft={isDraft} fieldError={fieldError} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} onWeekNormalized={value => setMessage(`Дата ${humanDate(value)} приведена к понедельнику ${humanDate(validWeek(value))}.`)} />
+      <div className="plan-inspector-foot"><button className="plan-primary" onClick={saveDraft}>Сохранить</button><button onClick={closeInspector}>Отмена</button>{!isDraft && <button className="danger" onClick={removeSelected}>Удалить</button>}</div>
+    </aside></div></div>}
+    {catalog && <PlanEntitiesDialog snapshot={snapshot} active={catalog} onSelect={setCatalog} onOpen={choose} onOpenAssignment={item => { setCatalog(null); setSelectedWeek(item.weekStart); setWeekCell({ projectId: item.projectId, deliveryId: item.deliveryId || null, weekStart: item.weekStart }); setRecordScope(null); }} onAdd={add} onClose={() => setCatalog(null)} />}
   </div>;
 }
 
