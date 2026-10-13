@@ -1,0 +1,42 @@
+.process-view .pv-help-trigger{border-color:#b8c8e7;background:#f1f5ff;color:#214c91;font-weight:650}
+.process-view .pv-help-trigger:hover{background:#e4edff;border-color:#7ea5e6}
+.process-help-backdrop{position:fixed;inset:0;z-index:120;background:rgba(23,33,47,.55);display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.process-help-modal{width:min(1080px,100%);height:min(790px,90vh);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid #cfdae9;border-radius:16px;box-shadow:0 24px 80px #101d36aa;color:#17212f}
+.process-help-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:24px 30px 21px;border-bottom:1px solid #e5ebf3;background:linear-gradient(115deg,#eff5ff,#fff 75%)}
+.process-help-header small{display:block;margin-bottom:7px;color:#3563a4;font-size:11px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
+.process-help-header h2{margin:0;color:#183355;font-size:25px;line-height:1.2}
+.process-help-header p{margin:7px 0 0;color:#5f6e82;font-size:13px}
+.process-help-header>button{flex:none;width:34px;height:34px;border:1px solid #d8e1ef;border-radius:9px;background:#fff;color:#42536d;font-size:23px;line-height:1}
+.process-help-layout{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:0;flex:1}
+.process-help-nav{overflow:auto;padding:18px 12px;background:#f6f8fc;border-right:1px solid #e5ebf3}
+.process-help-nav button{width:100%;display:flex;align-items:center;gap:12px;border:0;border-radius:8px;background:transparent;color:#43536c;text-align:left;padding:11px 12px;font-size:13px;font-weight:600;line-height:1.25}
+.process-help-nav button:hover{background:#eaf0fb}
+.process-help-nav button.active{background:#dfeaff;color:#173e79}
+.process-help-nav button span{color:#7890b0;font-size:11px;font-weight:750}
+.process-help-nav button.active span{color:#3365aa}
+.process-help-content{overflow:auto;padding:26px 34px 32px;line-height:1.6}
+.process-help-topic-label{color:#5c7eb1;text-transform:uppercase;letter-spacing:.1em;font-size:11px;font-weight:750}
+.process-help-content>h3{font-size:23px;line-height:1.25;color:#183355;margin:7px 0}
+.process-help-lead{font-size:14px;color:#5b6b81;margin:0 0 20px}
+.process-help-prose{font-size:13px;color:#36465a}
+.process-help-prose p{margin:0 0 14px}
+.process-help-prose h4{font-size:14px;color:#183355;margin:20px 0 6px}
+.process-help-prose ol{padding-left:22px;margin:10px 0 17px}
+.process-help-prose li{padding-left:3px;margin:0 0 9px}
+.process-help-callout,.process-help-note{border:1px solid #cbdcf8;background:#f1f6ff;border-radius:10px;padding:14px 17px;margin:0 0 19px}
+.process-help-callout strong{color:#17447e}
+.process-help-callout p,.process-help-note p{margin:5px 0 0}
+.process-help-note{margin:16px 0}
+.process-help-glossary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin:4px 0 16px}
+.process-help-glossary>div{border:1px solid #e1e8f1;border-radius:9px;background:#fbfcfe;padding:10px 13px}
+.process-help-glossary h4{margin:0 0 4px}
+.process-help-glossary p{margin:0}
+.process-help-example{display:grid;grid-template-columns:90px minmax(0,1fr);gap:7px 15px;padding:15px 17px;border:1px solid #d6e3f6;border-radius:10px;background:#f7faff;margin-bottom:17px}
+.process-help-example span{color:#6b7d95}
+.process-help-example strong{color:#1d3c64}
+.process-help-next{display:flex;justify-content:space-between;gap:12px;margin-top:27px;padding-top:17px;border-top:1px solid #e7ecf3}
+.process-help-next button,.process-help-footer button{border:1px solid #b8cbed;border-radius:8px;background:#f1f5ff;color:#214c91;padding:8px 11px;font-size:12px;font-weight:650}
+.process-help-next button:last-child{margin-left:auto}
+.process-help-next button:hover,.process-help-footer button:hover{background:#e1ebff}
+.process-help-footer{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 25px;border-top:1px solid #e5ebf3;color:#718096;font-size:12px}
+@media(max-width:700px){.process-help-backdrop{padding:8px}.process-help-modal{height:96vh;max-height:96vh}.process-help-header{padding:17px}.process-help-header h2{font-size:20px}.process-help-header p{font-size:12px}.process-help-layout{display:flex;flex-direction:column}.process-help-nav{display:flex;flex:none;overflow:auto;padding:8px;border-right:0;border-bottom:1px solid #e5ebf3}.process-help-nav button{flex:none;width:auto;padding:9px}.process-help-content{padding:18px}.process-help-glossary{grid-template-columns:1fr}.process-help-footer{padding:10px 14px}.process-help-footer span{display:none}}

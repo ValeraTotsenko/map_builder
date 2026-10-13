@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import type { Actor, Checkpoint, DateReference, Dependency, Group, Handover, Participation, Process, SharedMilestone, Snapshot, Stage, WorkspaceData } from '../model'
 import { createId, unknownDate, validateDateOrder, validateDateReference, validateSnapshot } from '../model'
 import { DraggableDialog } from '../DraggableDialog'
+import { ProcessHelpDialog } from './ProcessHelpDialog'
 import './ProcessView.css'
 
 type Kind = 'group' | 'process' | 'stage' | 'checkpoint' | 'milestone' | 'actor' | 'participation' | 'handover' | 'dependency'
@@ -130,6 +131,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const [treeOpen, setTreeOpen] = useState(true)
   const [inspectorWidth, setInspectorWidth] = useState(350)
   const [formError, setFormError] = useState<{ field: string; message: string } | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const select = (kind: Kind, id: string) => {
     const item = (data[collection[kind]] as Array<{ id: string }>).find(x => x.id === id)
@@ -367,6 +369,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
       <button className="pv-btn" onClick={() => setActorsOpen(x => !x)} aria-pressed={actorsOpen}>Участники {actorsOpen ? '▾' : '▸'}</button>
       <button className="pv-btn" onClick={() => setTreeOpen(x => !x)} aria-pressed={treeOpen}>{treeOpen ? 'Скрыть дерево' : 'Показать дерево'}</button>
       <button className="pv-btn" onClick={() => create('dependency')}>+ Связь</button><button className="pv-btn" onClick={() => create('handover')}>+ Передача</button>
+      <button className="pv-btn pv-help-trigger" onClick={() => setHelpOpen(true)}>ⓘ Справка</button>
       <span className="pv-toolbar-spacer" />
       <input type="search" aria-label="Поиск по карте" placeholder="Поиск процессов" value={search} onChange={e => setSearch(e.target.value)} />
       <select aria-label="Фильтр по группе" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}><option value="">Все группы</option>{data.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select>
@@ -406,6 +409,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
       </div>
       {editorMarkup && (isNew ? <DraggableDialog title={`Добавить: ${kindTitle[selected!.kind]}`} onClose={close} className="pv-create-window">{editorMarkup}</DraggableDialog> : editorMarkup)}
     </div>
+    {helpOpen && <ProcessHelpDialog onClose={() => setHelpOpen(false)} />}
   </div>
 }
 
