@@ -14,6 +14,7 @@ type Kind = CNode['kind'];
 type PaletteKind = Kind | 'zone' | 'edge';
 type CreateKind = Exclude<PaletteKind, 'edge'>;
 type CreateDraft = { kind: CreateKind; name: string; description: string; color: string };
+type EditDraft = { id: string; kind: 'node' | 'zone' | 'edge'; name: string; description: string; color: string; label: string; arrow: CEdge['arrow'] };
 type Selection = { nodes: string[]; edges: string[] };
 type SaveState = 'saved' | 'saving' | 'error';
 type CardData = { model: CNode; editing: boolean; onEdit: (id: string, name: string) => void; onFinish: () => void };
@@ -96,7 +97,8 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
   const [createError, setCreateError] = useState('');
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [editError, setEditError] = useState('');
   const [past, setPast] = useState<WorkspaceData[]>([]);
   const [future, setFuture] = useState<WorkspaceData[]>([]);
   const [titleDraft, setTitleDraft] = useState(snapshot.data.canvas.name);
@@ -169,7 +171,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
       const node: CNode = { id, kind, name: details?.name || DEFAULT_NAME[kind], description: details?.description || '', color: details?.color || KIND_COLOR[kind], x, y, width, height, zIndex: 1, zoneId: zone?.id ?? null, ref: null, createdAt: stamp, updatedAt: stamp };
       publish({ ...d, canvasNodes: [...d.canvasNodes, node] });
     }
-    setSelection({ nodes: [id], edges: [] }); setEditingId(details ? null : id); setInspectorOpen(true); setTool(null);
+    setSelection({ nodes: [id], edges: [] }); setEditingId(details ? null : id); setEditDraft(null); setTool(null);
   }, [publish]);
   const addAtCenter = (kind: PaletteKind, details?: Omit<CreateDraft, 'kind'>) => {
     if (kind === 'edge') { addAt(kind, 0, 0); return; }
@@ -216,18 +218,34 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     addAtCenter(createDraft.kind, { name, description: createDraft.description.trim(), color: createDraft.color });
     setCreateDraft(null);
   };
+  const openEditor = (id: string) => {
+    const d = current.current;
+    const node = d.canvasNodes.find(item => item.id === id);
+    const zone = d.canvasZones.find(item => item.id === id);
+    const edge = d.canvasEdges.find(item => item.id === id);
+    if (!node && !zone && !edge) return;
+    setEditingId(null);
+    setEditError('');
+    setEditDraft({ id, kind: node ? 'node' : zone ? 'zone' : 'edge', name: node?.name || zone?.name || '', description: node?.description || '', color: node?.color || zone?.color || '', label: edge?.label || '', arrow: edge?.arrow || 'forward' });
+  };
   const connect = useCallback((sourceId: string, targetId: string) => {
     if (sourceId === targetId) { setNotice('Карточку нельзя связать с самой собой.'); return; }
     const d = current.current;
     if (!d.canvasNodes.some(item => item.id === sourceId) || !d.canvasNodes.some(item => item.id === targetId)) return;
     const stamp = NOW(); const id = makeId();
     const edge: CEdge = { id, sourceId, targetId, label: '', arrow: 'forward', createdAt: stamp, updatedAt: stamp };
-    publish({ ...d, canvasEdges: [...d.canvasEdges, edge] }); setSelection({ nodes: [], edges: [id] }); setInspectorOpen(true); setTool(null); setConnectFrom(null); setNotice('');
+    publish({ ...d, canvasEdges: [...d.canvasEdges, edge] }); setSelection({ nodes: [], edges: [id] }); setEditDraft(null); setTool(null); setConnectFrom(null); setNotice('');
   }, [publish]);
-  const onNodeClick = (_event: React.MouseEvent, node: Node) => {
-    if (tool !== 'edge' || node.type !== 'card') return;
-    if (!connectRef.current) { setConnectFrom(node.id); setNotice('Выберите вторую карточку.'); }
-    else connect(connectRef.current, node.id);
+  const onNodeClick = (event: React.MouseEvent, node: Node) => {
+    if (tool === 'edge') {
+      if (node.type !== 'card') return;
+      if (!connectRef.current) { setConnectFrom(node.id); setNotice('Выберите вторую карточку.'); }
+      else connect(connectRef.current, node.id);
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+    setSelection({ nodes: [node.id], edges: [] });
+    openEditor(node.id);
   };
   const onConnect = (connection: Connection) => { if (connection.source && connection.target) connect(connection.source, connection.target); };
   const onDragStop = (_event: MouseEvent | TouchEvent, moved: Node, movedNodes?: Node[]) => {
@@ -258,6 +276,29 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     else if (d.canvasZones.some(item => item.id === id)) publish({ ...d, canvasZones: d.canvasZones.map(item => item.id === id ? { ...item, [field]: value, updatedAt: stamp } : item) });
     else publish({ ...d, canvasEdges: d.canvasEdges.map(item => item.id === id ? { ...item, [field]: value, updatedAt: stamp } : item) });
   };
+  const saveEdit = () => {
+    if (!editDraft) return;
+    const d = current.current, stamp = NOW();
+    if (editDraft.kind !== 'edge' && !editDraft.name.trim()) { setEditError('Укажите название элемента.'); return; }
+    if (editDraft.kind === 'node') {
+      const node = d.canvasNodes.find(item => item.id === editDraft.id);
+      if (!node) { setEditDraft(null); return; }
+      const name = editDraft.name.trim(), description = editDraft.description.trim();
+      if (name !== node.name || description !== node.description || editDraft.color !== node.color) publish({ ...d, canvasNodes: d.canvasNodes.map(item => item.id === editDraft.id ? { ...item, name, description, color: editDraft.color, updatedAt: stamp } : item) });
+    } else if (editDraft.kind === 'zone') {
+      const zone = d.canvasZones.find(item => item.id === editDraft.id);
+      if (!zone) { setEditDraft(null); return; }
+      const name = editDraft.name.trim();
+      if (name !== zone.name || editDraft.color !== zone.color) publish({ ...d, canvasZones: d.canvasZones.map(item => item.id === editDraft.id ? { ...item, name, color: editDraft.color, updatedAt: stamp } : item) });
+    } else {
+      const edge = d.canvasEdges.find(item => item.id === editDraft.id);
+      if (!edge) { setEditDraft(null); return; }
+      const label = editDraft.label.trim();
+      if (label !== edge.label || editDraft.arrow !== edge.arrow) publish({ ...d, canvasEdges: d.canvasEdges.map(item => item.id === editDraft.id ? { ...item, label, arrow: editDraft.arrow, updatedAt: stamp } : item) });
+    }
+    setEditDraft(null);
+    setEditError('');
+  };
   const undo = useCallback(() => { if (!past.length) return; const previous = past[past.length - 1], present = current.current; setPast(items => items.slice(0, -1)); setFuture(items => [...items, present]); publish(previous, false); }, [past, publish]);
   const redo = useCallback(() => { if (!future.length) return; const next = future[future.length - 1], present = current.current; setFuture(items => items.slice(0, -1)); setPast(items => [...items, present]); publish(next, false); }, [future, publish]);
   const requestDelete = useCallback(() => { if (selectionRef.current.nodes.length || selectionRef.current.edges.length) setConfirmDelete(true); }, []);
@@ -266,7 +307,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     const removedNodes = new Set(d.canvasNodes.filter(item => ids.has(item.id) || (zoneMode === 'remove' && item.zoneId && zones.has(item.zoneId))).map(item => item.id));
     const edges = d.canvasEdges.filter(item => !removedNodes.has(item.sourceId) && !removedNodes.has(item.targetId) && !selectionRef.current.edges.includes(item.id));
     publish({ ...d, canvasZones: d.canvasZones.filter(item => !zones.has(item.id)), canvasNodes: d.canvasNodes.filter(item => !removedNodes.has(item.id)).map(item => item.zoneId && zones.has(item.zoneId) ? { ...item, zoneId: null, updatedAt: NOW() } : item), canvasEdges: edges });
-    setSelection({ nodes: [], edges: [] }); setConfirmDelete(false);
+    setSelection({ nodes: [], edges: [] }); setConfirmDelete(false); setEditDraft(null);
   };
   const duplicate = useCallback((ids: string[]) => {
     const d = current.current; const originals = d.canvasNodes.filter(item => ids.includes(item.id)); const originalZones = d.canvasZones.filter(item => ids.includes(item.id)); if (!originals.length && !originalZones.length) return;
@@ -279,6 +320,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   }, [publish]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (editDraft || createDraft) return;
       const target = event.target as HTMLElement; if (target.closest('input, textarea, [contenteditable="true"]')) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); undo(); }
       else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); }
@@ -289,7 +331,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
       else if (event.key === 'Escape') { setCreateDraft(null); setTool(null); setConnectFrom(null); setNotice(''); }
     };
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
-  }, [undo, redo, duplicate, requestDelete]);
+  }, [undo, redo, duplicate, requestDelete, editDraft, createDraft]);
 
   const selectedId = selection.nodes.length === 1 ? selection.nodes[0] : selection.edges.length === 1 ? selection.edges[0] : null;
   const selectedNode = data.canvasNodes.find(item => item.id === selectedId);
@@ -316,12 +358,18 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     <section className="canvas-workspace"><div className="canvas-toolbar"><div className="canvas-title-wrap"><input aria-label="Название схемы" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onBlur={() => { const name = titleDraft.trim() || 'Схема'; setTitleDraft(name); if (name !== data.canvas.name) changeProperty(data.canvas.id, 'name', name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}/><span className={`canvas-save-status ${saveState}`}>{saveState === 'saved' ? <><Check size={12}/> Сохранено</> : saveState === 'saving' ? 'Сохранение…' : 'Ошибка сохранения'}</span></div><div className="canvas-toolbar-actions"><button onClick={undo} disabled={!past.length} title="Отменить (Ctrl+Z)"><Undo2 size={17}/></button><button onClick={redo} disabled={!future.length} title="Повторить (Ctrl+Y)"><Redo2 size={17}/></button><span className="canvas-tool-divider"/><button onClick={() => flow.current?.fitView({ padding: .16, duration: 300 })} title="Уместить схему"><Maximize2 size={16}/><span>Уместить</span></button><button onClick={() => flow.current?.zoomOut({ duration: 180 })} title="Уменьшить"><ZoomOut size={17}/></button><button onClick={() => flow.current?.zoomIn({ duration: 180 })} title="Увеличить"><ZoomIn size={17}/></button><button className="canvas-add-button" onClick={() => openCreate('action')}><Plus size={16}/> Добавить</button></div></div>
       {notice && <div className="canvas-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Закрыть"><X size={14}/></button></div>}
       <div className="canvas-flow" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const kind = event.dataTransfer.getData('application/x-canvas-kind') as PaletteKind; if (!KIND_LABEL[kind] || kind === 'edge') return; const point = flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); if (point) addAt(kind, Math.round(point.x), Math.round(point.y)); }}>
-        <SmartEdgeProvider nodes={routingNodes} options={routingOptions}><ReactFlow nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={(changes: NodeChange[]) => setFlowNodes(items => applyNodeChanges(changes, items))} onNodeDragStop={onDragStop} onNodeClick={onNodeClick} onEdgeClick={(_event, edge) => { setSelection({ nodes: [], edges: [edge.id] }); setInspectorOpen(true); }} onPaneClick={() => setSelection({ nodes: [], edges: [] })} onNodeDoubleClick={(_event, node) => setEditingId(node.id)} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => { const nextNodes = nodes.map(item => item.id); const nextEdges = edges.map(item => item.id); if (!nextNodes.length && !nextEdges.length) return; setSelection(previous => previous.nodes.join("|") === nextNodes.join("|") && previous.edges.join("|") === nextEdges.join("|") ? previous : { nodes: nextNodes, edges: nextEdges }); }} onInit={instance => { flow.current = instance; }} onMoveEnd={(_event, viewport) => { const d = current.current; if (Math.abs(d.canvas.viewport.x - viewport.x) < 1 && Math.abs(d.canvas.viewport.y - viewport.y) < 1 && Math.abs(d.canvas.viewport.zoom - viewport.zoom) < .001) return; publish({ ...d, canvas: { ...d.canvas, viewport, updatedAt: NOW() } }, false); }} defaultViewport={data.canvas.viewport} minZoom={.05} maxZoom={4} zoomOnScroll={false} panOnScroll={false} panOnDrag selectionOnDrag={false} zoomOnDoubleClick={false} multiSelectionKeyCode={['Control','Meta','Shift']} deleteKeyCode={null} fitView={false} proOptions={{ hideAttribution: true }}><Background color="#dce3ee" gap={22} size={1}/><MiniMap pannable zoomable className="canvas-minimap" nodeColor={node => node.type === 'zone' ? '#dce7f9' : '#8da5d6'}/><Controls showZoom={false} showFitView={false} showInteractive={false}/></ReactFlow></SmartEdgeProvider>
+        <SmartEdgeProvider nodes={routingNodes} options={routingOptions}><ReactFlow nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} onNodesChange={(changes: NodeChange[]) => setFlowNodes(items => applyNodeChanges(changes, items))} onNodeDragStop={onDragStop} onNodeClick={onNodeClick} onEdgeClick={(_event, edge) => { setSelection({ nodes: [], edges: [edge.id] }); openEditor(edge.id); }} onPaneClick={() => setSelection({ nodes: [], edges: [] })} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => { const nextNodes = nodes.map(item => item.id); const nextEdges = edges.map(item => item.id); if (!nextNodes.length && !nextEdges.length) return; setSelection(previous => previous.nodes.join("|") === nextNodes.join("|") && previous.edges.join("|") === nextEdges.join("|") ? previous : { nodes: nextNodes, edges: nextEdges }); }} onInit={instance => { flow.current = instance; }} onMoveEnd={(_event, viewport) => { const d = current.current; if (Math.abs(d.canvas.viewport.x - viewport.x) < 1 && Math.abs(d.canvas.viewport.y - viewport.y) < 1 && Math.abs(d.canvas.viewport.zoom - viewport.zoom) < .001) return; publish({ ...d, canvas: { ...d.canvas, viewport, updatedAt: NOW() } }, false); }} defaultViewport={data.canvas.viewport} minZoom={.05} maxZoom={4} zoomOnScroll={false} panOnScroll={false} panOnDrag selectionOnDrag={false} zoomOnDoubleClick={false} multiSelectionKeyCode={['Control','Meta','Shift']} deleteKeyCode={null} fitView={false} proOptions={{ hideAttribution: true }}><Background color="#dce3ee" gap={22} size={1}/><MiniMap pannable zoomable className="canvas-minimap" nodeColor={node => node.type === 'zone' ? '#dce7f9' : '#8da5d6'}/><Controls showZoom={false} showFitView={false} showInteractive={false}/></ReactFlow></SmartEdgeProvider>
         {!data.canvasNodes.length && !data.canvasZones.length && <div className="canvas-empty"><div className="canvas-empty-mark">◇</div><h2>Начните с одной мысли</h2><p>Добавьте зону или карточку, затем соедините шаги и участников.</p><div><button onClick={() => openCreate('zone')}>Добавить зону</button><button className="secondary" onClick={makeDemo}>Создать пример</button></div></div>}
       </div>
-      {(selection.nodes.length || selection.edges.length) > 0 && <div className="canvas-selection-bar"><strong>Выбрано: {selection.nodes.length + selection.edges.length}</strong><button onClick={() => duplicate(selection.nodes)} disabled={!selection.nodes.length}><Copy size={14}/> Копировать</button><button onClick={requestDelete}><Trash2 size={14}/> Удалить</button><button onClick={() => setInspectorOpen(value => !value)}>{inspectorOpen ? 'Скрыть свойства' : 'Показать свойства'}</button></div>}
+      {(selection.nodes.length || selection.edges.length) > 0 && <div className="canvas-selection-bar"><strong>Выбрано: {selection.nodes.length + selection.edges.length}</strong>{selected && <button onClick={() => openEditor(selected.id)}>Редактировать</button>}<button onClick={() => duplicate(selection.nodes)} disabled={!selection.nodes.length}><Copy size={14}/> Копировать</button><button onClick={requestDelete}><Trash2 size={14}/> Удалить</button></div>}
     </section>
-    {selected && inspectorOpen && <aside className="canvas-inspector"><div className="canvas-inspector-heading"><div><small>Свойства</small><h2>{selectedNode ? KIND_LABEL[selectedNode.kind] : selectedZone ? 'Зона' : 'Связь'}</h2></div><button onClick={() => setInspectorOpen(false)} aria-label="Скрыть свойства"><X size={16}/></button></div>{selectedEdge ? <><label>Подпись<input key={`${selectedEdge.id}:label`} defaultValue={selectedEdge.label} maxLength={100} placeholder="Например, согласует" onBlur={event => { if (event.target.value !== selectedEdge.label) changeProperty(selectedEdge.id, 'label', event.target.value); }}/></label><label>Направление<select value={selectedEdge.arrow} onChange={event => changeProperty(selectedEdge.id, 'arrow', event.target.value)}><option value="forward">От источника к цели →</option><option value="reverse">К источнику ←</option><option value="none">Без стрелки —</option></select></label></> : <><label>Название<input key={`${selected.id}:name`} defaultValue={(selected as CNode | CZone).name} maxLength={160} onBlur={event => { const value = event.target.value.trim(); if (value && value !== (selected as CNode | CZone).name) changeProperty(selected.id, 'name', value); }}/></label>{selectedNode && <label>Пояснение<textarea key={`${selected.id}:description`} defaultValue={selectedNode.description} maxLength={1000} placeholder="Необязательно" rows={4} onBlur={event => { if (event.target.value !== selectedNode.description) changeProperty(selected.id, 'description', event.target.value); }}/></label>}<div className="canvas-color-label">Цвет</div><div className="canvas-colors">{COLORS.map(color => <button key={color} style={{ backgroundColor: color }} className={(selected as CNode | CZone).color === color ? 'active' : ''} aria-label={`Цвет ${color}`} onClick={() => changeProperty(selected.id, 'color', color)} />)}</div></> }</aside>}
+    {editDraft && <DraggableDialog title={editDraft.kind === 'edge' ? 'Редактировать связь' : editDraft.kind === 'zone' ? 'Редактировать зону' : 'Редактировать элемент схемы'} onClose={() => setEditDraft(null)} className="canvas-edit-window">
+      <div className="canvas-create-form">
+        {editDraft.kind === 'edge' ? <><label>Подпись<input autoFocus maxLength={100} value={editDraft.label} onChange={event => setEditDraft({ ...editDraft, label: event.target.value })} placeholder="Например, согласует"/></label><label>Направление<select value={editDraft.arrow} onChange={event => setEditDraft({ ...editDraft, arrow: event.target.value as CEdge['arrow'] })}><option value="forward">От источника к цели →</option><option value="reverse">К источнику ←</option><option value="none">Без стрелки —</option></select></label></> : <><label>Название<input autoFocus maxLength={160} value={editDraft.name} onChange={event => { setEditDraft({ ...editDraft, name: event.target.value }); setEditError(''); }} onKeyDown={event => { if (event.key === 'Enter') saveEdit(); }}/></label>{editDraft.kind === 'node' && <label>Пояснение<textarea rows={4} maxLength={1000} value={editDraft.description} onChange={event => setEditDraft({ ...editDraft, description: event.target.value })} placeholder="Необязательно"/></label>}<div className="canvas-create-color-label">Цвет</div><div className="canvas-create-colors">{COLORS.map(color => <button type="button" key={color} style={{ background: color }} className={editDraft.color === color ? 'active' : ''} aria-label={`Цвет ${color}`} onClick={() => setEditDraft({ ...editDraft, color })}/>)}</div></>}
+        {editError && <p className="canvas-create-error" role="alert">{editError}</p>}
+        <div className="canvas-create-actions"><button type="button" onClick={() => setEditDraft(null)}>Отмена</button><button type="button" className="canvas-create-save" onClick={saveEdit}>Сохранить</button></div>
+      </div>
+    </DraggableDialog>}
     {createDraft && <DraggableDialog title="Добавить элемент схемы" onClose={() => setCreateDraft(null)} className="canvas-create-window">
       <div className="canvas-create-form">
         <label>Тип элемента<select value={createDraft.kind} onChange={event => { const kind = event.target.value as CreateKind; setCreateDraft({ kind, name: kind === 'zone' ? 'Новая зона' : DEFAULT_NAME[kind], description: '', color: kind === 'zone' ? COLORS[data.canvasZones.length % COLORS.length] : KIND_COLOR[kind] }); }}>{(['zone','action','actor','project','direction','note'] as CreateKind[]).map(kind => <option key={kind} value={kind}>{KIND_LABEL[kind]}</option>)}</select></label>
