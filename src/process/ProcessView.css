@@ -20,10 +20,11 @@
 .pv-actor-symbol.department{border-radius:4px}.pv-actor-symbol.role{border-radius:99px}.pv-actor-symbol.person{border-radius:50%;width:25px;padding:0}
 .pv-canvas{min-width:0;display:flex;flex:1;overflow:auto;position:relative}
 .pv-tree{width:330px;min-width:260px;max-width:48vw;flex:none;position:sticky;left:0;z-index:3;background:#fff;box-shadow:1px 0 #dce2eb;resize:horizontal;overflow:auto}
-.pv-time{min-width:940px;flex:1;position:relative}
+.pv-time{min-width:var(--pv-min-width,940px);flex:1;position:relative}
 .pv-head{height:52px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid #dce2eb;background:#fff;position:sticky;top:0;z-index:5;font-weight:700;color:#526074}
-.pv-time-head{display:grid;padding:0;grid-auto-flow:column;grid-auto-columns:1fr;min-width:940px}
-.pv-time-head span{display:flex;align-items:center;justify-content:center;border-left:1px solid #e4e8ee;font-size:11px;white-space:nowrap}
+.pv-time-head{display:grid;padding:0;grid-template-columns:repeat(var(--pv-column-count),minmax(0,1fr));min-width:0}
+.pv-time-head span{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;border-left:1px solid #e4e8ee;font-size:11px;white-space:nowrap}
+.pv-time-head small{font-size:10px;font-weight:500;color:#7a8798}
 .pv-row{height:54px;border-bottom:1px solid #e9edf2;display:flex;align-items:center;position:relative;box-sizing:border-box}
 .pv-tree-row{padding:0 8px 0 12px;gap:7px}
 .pv-time-row{background-image:linear-gradient(to right,#e4e8ee 1px,transparent 1px);background-size:var(--pv-col-width) 100%;background-color:#fff}
@@ -78,4 +79,4 @@
 .pv-selected-detail span{font-size:11px;color:#47648b}
 .pv-inspector{min-width:280px;max-width:min(560px,90vw)}
 
-.pv-create-window .pv-inspector{width:100%!important;min-width:0;max-width:none;height:auto;max-height:none;overflow:visible;border:0;padding:20px 24px 24px}.pv-create-window .pv-inspector-header,.pv-create-window .pv-inspector-size{display:none}.pv-create-window .pv-form{gap:13px}.pv-create-window .pv-form-actions{position:sticky;bottom:-24px;background:#fff;border-top:1px solid #e5eaf0;padding:12px 0 0;margin-top:8px}
+.pv-editor-window{width:min(800px,calc(100vw - 28px))}.pv-editor-window .pv-inspector{width:100%!important;min-width:0;max-width:none;height:auto;max-height:none;overflow:visible;border:0;padding:20px 24px 24px}.pv-editor-window .pv-inspector-header{display:none}.pv-editor-window .pv-form{gap:13px}.pv-editor-window .pv-form-actions{position:sticky;bottom:-24px;background:#fff;border-top:1px solid #e5eaf0;padding:12px 0 0;margin-top:8px}

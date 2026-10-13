@@ -41,6 +41,15 @@ function todayWeek(): string { return iso(monday(new Date())); }
 function stamp() { return new Date().toISOString(); }
 function createBase() { const t = stamp(); return { id: createId(), createdAt: t, updatedAt: t }; }
 function humanDate(s?: string): string { if (!s) return '—'; const [y, m, d] = s.split('-'); return `${d}.${m}.${y}`; }
+function workweekEnd(start: string): string { return iso(new Date(date(start).getTime() + 4 * DAY)); }
+function workweekLabel(start: string): string {
+  const end = workweekEnd(start);
+  const month = (value: string) => new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(date(value)).replace('.', '');
+  const firstDay = Number(start.slice(8)), lastDay = Number(end.slice(8));
+  return start.slice(0, 7) === end.slice(0, 7)
+    ? `${firstDay}–${lastDay} ${month(end)}`
+    : `${firstDay} ${month(start)} – ${lastDay} ${month(end)}`;
+}
 function deadlineText(ref?: DateReference): string {
   if (!ref || ref.kind === 'unknown') return ref?.text || 'Без срока';
   if (ref.kind === 'exact') return humanDate(ref.date);
@@ -494,7 +503,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       <div className="plan-main">
         <div className="plan-scroll" ref={planScroll}>
           <div className="plan-grid">
-            <div className="plan-grid-head"><div className="plan-head-label">Объекты плана</div><div className="plan-head-weeks" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map(w => <button key={w} className={`${w === todayWeek() ? 'current-week' : ''} ${selectedWeek === w ? 'is-selected-week' : ''}`} onClick={() => { setSelectedWeek(w); setWeekCell(null); setLoadOpen(true); }} aria-label={`Нагрузка недели №${isoWeekNumber(w)} с ${humanDate(w)}`}><strong>{w.slice(8)}.{w.slice(5, 7)}</strong><small>№{isoWeekNumber(w)} · {w.slice(0, 4)}</small></button>)}</div></div>
+            <div className="plan-grid-head"><div className="plan-head-label">Объекты плана</div><div className="plan-head-weeks" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map(w => <button key={w} className={`${w === todayWeek() ? 'current-week' : ''} ${selectedWeek === w ? 'is-selected-week' : ''}`} onClick={() => { setSelectedWeek(w); setWeekCell(null); setLoadOpen(true); }} aria-label={`Нагрузка недели №${isoWeekNumber(w)}, рабочие дни ${humanDate(w)} — ${humanDate(workweekEnd(w))}`} title={`Рабочие дни: ${humanDate(w)} — ${humanDate(workweekEnd(w))}`}><strong>{workweekLabel(w)}</strong><small>№{isoWeekNumber(w)} · {w.slice(0, 4)}</small></button>)}</div></div>
             {!projects.length && <div className="plan-empty">План пока пуст. Создайте проект, затем добавьте поставку и недельные задачи.</div>}
             {visibleProjects.map(p => <div key={p.id}>
               {row('project', p.id, p.name, `${p.type} · ${p.status}`, 0, null, true)}

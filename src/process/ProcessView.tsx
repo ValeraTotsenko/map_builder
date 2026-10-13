@@ -27,6 +27,21 @@ const today = () => iso(new Date())
 const refStart = (ref?: DateReference) => ref?.kind === 'exact' ? ref.date : ref?.kind === 'range' ? ref.start : undefined
 const refEnd = (ref?: DateReference) => ref?.kind === 'exact' ? ref.date : ref?.kind === 'range' ? ref.end : undefined
 const formatDate = (value?: string) => value ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(day(value)) : 'Без даты'
+const shortMonth = (value: string) => new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(day(value)).replace('.', '')
+const weekCaption = (start: string) => {
+  const end = plusDays(start, 6)
+  const startDay = Number(start.slice(8)), endDay = Number(end.slice(8))
+  return start.slice(0, 7) === end.slice(0, 7)
+    ? `${startDay}–${endDay} ${shortMonth(end)}`
+    : `${startDay} ${shortMonth(start)} – ${endDay} ${shortMonth(end)}`
+}
+const isoWeekNumber = (start: string) => {
+  const thursday = day(start)
+  thursday.setUTCDate(thursday.getUTCDate() + 3 - (thursday.getUTCDay() + 6) % 7)
+  const firstThursday = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4, 12))
+  firstThursday.setUTCDate(firstThursday.getUTCDate() + 3 - (firstThursday.getUTCDay() + 6) % 7)
+  return 1 + Math.round((thursday.getTime() - firstThursday.getTime()) / (7 * 86400000))
+}
 const formatRef = (ref?: DateReference) => ref?.kind === 'exact' ? formatDate(ref.date) : ref?.kind === 'range' ? `${formatDate(ref.start)} — ${formatDate(ref.end)}` : ref?.text || 'Не запланировано'
 const safeStatus = (s?: string) => s || 'Не начато'
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toLocaleUpperCase('ru')).join('') || '•'
@@ -129,7 +144,6 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const [anchor, setAnchor] = useState(monday(today()))
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [treeOpen, setTreeOpen] = useState(true)
-  const [inspectorWidth, setInspectorWidth] = useState(350)
   const [formError, setFormError] = useState<{ field: string; message: string } | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
 
@@ -264,10 +278,10 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const focusedEnd = focusedStage && refEnd(focusedStage.plannedEnd)
   const shortStageSelected = !!focusedStart && !!focusedEnd && day(focusedEnd).getTime() - day(focusedStart).getTime() <= 28 * 86400000
   const columns = useMemo(() => {
-    const values: { start: string; end: string; label: string }[] = []
+    const values: { start: string; end: string; label: string; detail?: string }[] = []
     const start = scale === 'week' ? monday(anchor) : `${anchor.slice(0, 7)}-01`
     for (let i = 0; i < (scale === 'week' ? shortStageSelected ? 12 : 26 : 12); i++) {
-      if (scale === 'week') { const from = plusDays(start, i * 7); values.push({ start: from, end: plusDays(from, 7), label: `${formatDate(from)} · ${i + 1}` }) }
+      if (scale === 'week') { const from = plusDays(start, i * 7); values.push({ start: from, end: plusDays(from, 7), label: weekCaption(from), detail: `№${isoWeekNumber(from)} · ${from.slice(0, 4)}` }) }
       else { const d = day(start); d.setUTCMonth(d.getUTCMonth() + i); const from = iso(d); d.setUTCMonth(d.getUTCMonth() + 1); values.push({ start: from, end: iso(d), label: new Intl.DateTimeFormat('ru-RU', { month: 'short', year: 'numeric' }).format(day(from)) }) }
     }
     return values
@@ -344,8 +358,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   }
 
   const editorMarkup = inspectorOpen && selected && draft ? (
-<aside className="pv-inspector" style={{ width: inspectorWidth }}><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
-        <label className="pv-inspector-size">Ширина карточки <input type="range" min="280" max="560" step="10" value={inspectorWidth} onChange={e => setInspectorWidth(Number(e.target.value))} aria-label="Ширина инспектора" /></label>
+<aside className="pv-inspector"><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
         {selected.kind === 'stage' && !isNew && <div className="pv-selected-detail"><strong>{draft.name}</strong><span>{formatRef(draft.plannedStart)} — {formatRef(draft.plannedEnd)}</span></div>}
         {confirmDelete ? <div className="pv-confirm"><strong>Удалить «{draft.name || kindTitle[selected.kind]}»?</strong>{countConsequences(selected.kind, selected.id, data).map(line => <div key={line}>{line}</div>)}{selected.kind === 'actor' && data.actors.some(a => a.id !== selected.id && a.type === draft.type) && <label style={{ display: 'block', marginTop: 10 }}>Перепривязать связи к участнику<select value={replacementId} onChange={e => setReplacementId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4 }}><option value="">Удалить связи и назначения</option>{data.actors.filter(a => a.id !== selected.id && a.type === draft.type).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}<div className="pv-form-actions"><button className="pv-btn pv-btn-danger" onClick={remove}>Удалить</button><button className="pv-btn" onClick={() => setConfirmDelete(false)}>Отмена</button></div></div> : <><div className="pv-form">{form()}{fieldError('_form')}<div className="pv-form-actions"><button className="pv-btn pv-btn-primary" onClick={save}>Сохранить</button>{!isNew && <button className="pv-btn pv-btn-danger" onClick={() => setConfirmDelete(true)}>Удалить</button>}<button className="pv-btn" onClick={close}>Закрыть</button></div></div>
           {!isNew && <><div className="pv-form-section">Связи и участие</div><div className="pv-related">
@@ -395,8 +408,8 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
             <div className="pv-row-actions">{row.kind === 'group' && <button className="pv-mini" title="Добавить процесс" onClick={() => create('process', { kind: 'group', id: row.id })}>+</button>}{row.kind === 'process' && <button className="pv-mini" title="Добавить этап" onClick={() => create('stage', { kind: 'process', id: row.id })}>+</button>}{row.kind === 'stage' && <button className="pv-mini" title="Добавить контрольную точку" onClick={() => create('checkpoint', { kind: 'stage', id: row.id })}>+</button>}</div>
           </div>
         })}{!rows.length && <div className="pv-empty">Карта пока пуста. Создайте группу или процесс.</div>}</div>}
-        <div className="pv-time" style={{ '--pv-col-width': `${100 / columns.length}%` } as CSSProperties}>
-          <div className="pv-head pv-time-head">{columns.map(c => <span key={c.start}>{c.label}</span>)}</div>
+        <div className="pv-time" style={{ '--pv-col-width': `${100 / columns.length}%`, '--pv-min-width': `${columns.length * (scale === 'week' ? 118 : 100)}px`, '--pv-column-count': columns.length } as CSSProperties}>
+          <div className="pv-head pv-time-head">{columns.map(c => <span key={c.start} title={`${formatDate(c.start)} — ${formatDate(plusDays(c.end, -1))}`}>{c.label}{c.detail && <small>{c.detail}</small>}</span>)}</div>
           {rows.map(row => { const dates = span(row); const isSelected = selected?.kind === row.kind && selected.id === row.id; const visible = dates?.start && dates?.end && day(dates.end).getTime() >= domainStart && day(dates.start).getTime() < domainEnd; const left = dates?.start ? pct(dates.start) : 0; const right = dates?.end ? pct(plusDays(dates.end, 1)) : left; const rowHandovers = data.handovers.filter(h => h.targetId === row.id && (showAllLinks || h.targetId === selected?.id || (selected?.kind === 'process' && relatedProcessIds.includes(h.targetId)))); return <div key={`${row.kind}-${row.id}`} className={`pv-row pv-time-row ${row.kind} ${isSelected ? 'selected' : ''} ${!highlighted(row) ? 'dimmed' : ''} ${rowHandovers.length ? 'has-handovers' : ''}`} onClick={() => row.id !== '_ungrouped' && select(row.kind === 'milestone' ? 'milestone' : row.kind, row.id)}>
             {!!rowHandovers.length && <div className="pv-handover-list" aria-label="Передачи результата">{rowHandovers.map(h => { const from = data.actors.find(a => a.id === h.fromActorId)?.name || '?'; const to = data.actors.find(a => a.id === h.toActorId)?.name || '?'; const arrowId = `pv-handover-arrow-${h.id}`; return <div className="pv-handover-flow" key={h.id} title={`${from} → ${to}: ${h.description}`}><span>{from}</span><svg width="27" height="12" viewBox="0 0 27 12" aria-hidden="true"><defs><marker id={arrowId} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#47648b" /></marker></defs><line x1="1" y1="6" x2="24" y2="6" stroke="#47648b" strokeWidth="1.7" markerEnd={`url(#${arrowId})`} /></svg><span>{to}</span><strong>{h.description}</strong></div> })}</div>}
             {(row.kind === 'process' || row.kind === 'stage') && visible && <div className={`pv-bar ${row.kind}`} title={`${row.label}: ${formatDate(dates.start)} — ${formatDate(dates.end)}`} style={{ left: `${left}%`, width: `${Math.max(1.1, right - left)}%`, borderLeftColor: row.color || undefined }}>{row.label}</div>}
@@ -407,7 +420,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
           {!!conflicts.length && <span className="pv-links-note">⚠ Конфликт сроков предпосылок: {conflicts.length}</span>}
         </div>
       </div>
-      {editorMarkup && (isNew ? <DraggableDialog title={`Добавить: ${kindTitle[selected!.kind]}`} onClose={close} className="pv-create-window">{editorMarkup}</DraggableDialog> : editorMarkup)}
+      {editorMarkup && <DraggableDialog title={`${isNew ? 'Добавить' : 'Редактировать'}: ${kindTitle[selected!.kind]}`} onClose={close} className="pv-editor-window">{editorMarkup}</DraggableDialog>}
     </div>
     {helpOpen && <ProcessHelpDialog onClose={() => setHelpOpen(false)} />}
   </div>
