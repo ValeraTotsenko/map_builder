@@ -1,0 +1,291 @@
+/* QA drafting desk. Visual changes only; persisted workspace data is untouched. */
+:root {
+  --desk-ink: #19333a;
+  --desk-ink-soft: #486169;
+  --desk-teal: #087d7a;
+  --desk-teal-dark: #076663;
+  --desk-paper: #ffffff;
+  --desk-surface: #edf3f2;
+  --desk-line: #ccdcda;
+  --desk-amber: #db9f43;
+  --desk-focus: #168f8b;
+  font-family: "Bahnschrift", "Segoe UI Variable", "Segoe UI", sans-serif;
+  color: var(--desk-ink);
+  background: var(--desk-surface);
+}
+
+button, input, select, textarea { font-family: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
+.process-view button:focus-visible, .process-view input:focus-visible,
+.plan-page button:focus-visible, .plan-page input:focus-visible {
+  outline: 2px solid var(--desk-focus);
+  outline-offset: 2px;
+}
+
+/* The dark masthead is the one strong visual gesture. */
+.app-header {
+  min-height: 72px;
+  height: 72px;
+  padding: 0 22px;
+  gap: 14px;
+  background: var(--desk-ink);
+  border-bottom: 3px solid var(--desk-teal);
+  box-shadow: 0 2px 14px #17343b1c;
+}
+.brand { min-width: 218px; gap: 12px; }
+.brand-symbol { width: 38px; height: 38px; border-radius: 9px; background: var(--desk-teal); color: white; }
+.brand strong { color: #f6fbfa; font-size: 15px; font-weight: 700; letter-spacing: -.015em; }
+.brand small { color: #a8c5c7; font-size: 11px; }
+.main-nav { align-self: stretch; gap: 2px; padding: 7px 0 0; background: none; border-radius: 0; }
+.main-nav button {
+  position: relative;
+  height: 100%;
+  padding: 0 17px;
+  border-radius: 0;
+  color: #b6ced0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.main-nav button:hover { color: #fff; background: #ffffff0e; }
+.main-nav button.active { background: #ffffff0f; color: #fff; box-shadow: none; }
+.main-nav button.active::after {
+  content: "";
+  position: absolute;
+  left: 15px;
+  right: 15px;
+  bottom: -3px;
+  height: 3px;
+  background: var(--desk-amber);
+}
+.header-actions { min-width: 170px; }
+.header-actions .quiet-button { background: #ffffff0c; border-color: #819a9f66; color: #e8f4f3; }
+.header-actions .quiet-button:hover { background: #ffffff1c; border-color: #a5c3c2; }
+.backup-shortcut { color: #f8d49a !important; border-color: #db9f4380 !important; }
+.menu-popover { border-color: var(--desk-line); box-shadow: 0 18px 48px #10262e2e; }
+.menu-popover button:hover { background: #e8f3f1; }
+.app-main { background: var(--desk-surface); }
+.global-message, .canvas-notice { background: var(--desk-ink); }
+
+/* Shared controls: crisp, calm, and clearly differentiated by action. */
+.pv-btn, .plan-page button, .canvas-toolbar-actions button, .quiet-button,
+.canvas-create-actions button, .canvas-modal-actions button {
+  transition: background-color .13s ease, border-color .13s ease, color .13s ease;
+}
+.pv-btn, .plan-page button, .canvas-create-actions button {
+  border-color: var(--desk-line);
+  color: var(--desk-ink);
+  border-radius: 7px;
+}
+.pv-btn:hover, .plan-page button:hover, .canvas-create-actions button:hover {
+  background: #e9f4f1;
+  border-color: #8cbfbb;
+}
+.pv-btn-primary, .plan-actions .plan-primary, .plan-page .plan-primary,
+.canvas-toolbar-actions .canvas-add-button, .canvas-create-actions .canvas-create-save,
+.canvas-empty button:not(.secondary), .plan-catalog-list-head .plan-primary {
+  background: var(--desk-teal);
+  border-color: var(--desk-teal);
+  color: #fff;
+}
+.pv-btn-primary:hover, .plan-actions .plan-primary:hover, .plan-page .plan-primary:hover,
+.canvas-toolbar-actions .canvas-add-button:hover, .canvas-create-actions .canvas-create-save:hover,
+.canvas-empty button:not(.secondary):hover { background: var(--desk-teal-dark); border-color: var(--desk-teal-dark); color: #fff; }
+.pv-form input, .pv-form select, .pv-form textarea, .process-toolbar input, .process-toolbar select,
+.plan-page input, .plan-page select, .plan-page textarea, .canvas-inspector input,
+.canvas-inspector select, .canvas-inspector textarea, .canvas-create-form input,
+.canvas-create-form select, .canvas-create-form textarea {
+  border-color: #bfd1ce;
+  color: var(--desk-ink);
+  background: #fff;
+}
+.pv-form input:hover, .pv-form select:hover, .plan-page input:hover, .plan-page select:hover,
+.canvas-create-form input:hover { border-color: #86ada9; }
+
+/* Process map: a drafting ledger with a sticky hierarchy and readable time grid. */
+.process-view, .plan-page, .canvas-screen { background: var(--desk-surface); color: var(--desk-ink); }
+.process-toolbar {
+  column-gap: 7px;
+  row-gap: 8px;
+  padding: 12px 18px;
+  background: #fbfdfc;
+  border-color: var(--desk-line);
+}
+.process-toolbar h1 { font-size: 20px; letter-spacing: -.025em; margin-right: 16px; }
+.process-toolbar .pv-btn { min-height: 34px; }
+.process-toolbar input[type=search] { width: 210px; }
+.process-toolbar label { color: var(--desk-ink-soft); }
+.pv-actors, .pv-tree, .pv-inspector { background: var(--desk-paper); border-color: var(--desk-line); }
+.pv-actors { width: 226px; padding: 16px 12px; }
+.pv-panel-title, .pv-head { color: var(--desk-ink-soft); }
+.pv-panel-title { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.pv-actor-item { padding: 9px 8px; }
+.pv-actor-item:hover, .pv-actor-item.active { background: #e5f3f0; color: #075f5b; }
+.pv-actor-symbol { background: #e9f2f0; border-color: #a9c8c2; color: #08716c; }
+.pv-tree { width: 344px; box-shadow: 1px 0 var(--desk-line); }
+.pv-head { background: #e5efed; border-color: var(--desk-line); font-size: 12px; }
+.pv-time-head span { border-color: #c8d9d6; font-weight: 600; }
+.pv-row, .pv-time-row { border-color: #dce7e4; }
+.pv-time-row {
+  background-image: linear-gradient(to right,#d7e3e0 1px,transparent 1px);
+  background-color: #fbfdfc;
+}
+.pv-time-row.group { background-color: #eaf2ef; }
+.pv-tree-row.group { background: #f0f6f3; }
+.pv-tree-row.selected, .pv-time-row.selected { background-color: #def1ed; }
+.pv-row-label { color: var(--desk-ink); }
+.pv-row-label small, .pv-unscheduled, .pv-status { color: #627a7f; }
+.pv-bar { border-radius: 4px; box-shadow: 0 1px 3px #29494020; }
+.pv-bar.process { background: #cdeae4; color: #075b56; border-left-color: var(--desk-teal); }
+.pv-bar.stage { background: #dfeae8; color: #285059; border-left-color: #638d88; }
+.pv-handover-flow { border-color: #b7cfca; color: #2b6060; box-shadow: none; }
+.pv-marker { background: var(--desk-teal); }
+.pv-marker.milestone { background: var(--desk-amber); }
+.pv-selected-detail { background: #e6f4f0; border-color: #b7dad0; }
+.pv-selected-detail strong { color: #0b655f; }
+.pv-inspector { border-color: var(--desk-line); }
+.pv-form-section { border-color: var(--desk-line); color: var(--desk-ink-soft); text-transform: none; letter-spacing: 0; }
+.pv-chip { background: #f0f6f4; border-color: var(--desk-line); }
+.pv-related button { color: var(--desk-teal-dark); }
+
+/* Weekly plan: weeks remain the visual unit; rows and assignments gain contrast. */
+.plan-page { font-family: inherit; }
+.plan-toolbar { padding: 13px 18px; gap: 12px; background: #fbfdfc; border-color: var(--desk-line); }
+.plan-title { align-items: center; }
+.plan-title h1 { font-size: 21px; color: var(--desk-ink); }
+.plan-title span { color: #658080; }
+.plan-actions { gap: 6px; }
+.plan-actions>button { min-height: 34px; }
+.plan-export { padding-left: 10px; border-left: 1px solid var(--desk-line); }
+.plan-catalog-trigger { color: var(--desk-teal-dark) !important; border-color: #99c8c1 !important; }
+.plan-filters { background: #e8f1ef; border-color: var(--desk-line); gap: 8px; padding: 10px 18px; }
+.plan-filters input { width: 205px; }
+.plan-period { padding: 9px 18px; background: #fbfdfc; border-color: var(--desk-line); }
+.plan-period label, .plan-period-caption { color: var(--desk-ink-soft); }
+.plan-scroll { background: #fff; }
+.plan-grid-head { background: #e5efed; border-color: var(--desk-line); }
+.plan-head-label { background: #e5efed; color: #3b5b5f; border-color: var(--desk-line); }
+.plan-head-weeks>button { background: #e5efed; color: #3b5b5f; border-color: var(--desk-line); }
+.plan-head-weeks>button:hover { background: #d8eae5; }
+.plan-head-weeks>button.current-week { background: #f8edce; color: #72511b; }
+.plan-head-weeks>button.is-selected-week { background: #d4ebe5; color: #0a625d; box-shadow: inset 0 -3px var(--desk-teal); }
+.plan-row { border-color: #deebe7; }
+.plan-row-label { border-color: var(--desk-line); }
+.plan-row:nth-child(even) .plan-row-label { background: #f8fbfa; }
+.plan-row.is-selected .plan-row-label { background: #def1ed; }
+.plan-row-name { color: var(--desk-ink) !important; }
+.plan-row-detail { color: #71858a; }
+.plan-row-track { background: repeating-linear-gradient(to right,transparent 0,transparent calc(100%/var(--week-count) - 1px),#dbe8e4 calc(100%/var(--week-count) - 1px),#dbe8e4 calc(100%/var(--week-count))); }
+.plan-row-track:hover { background-color: #f1f8f5; }
+.plan-row-track>.weekly-cell { border-color: #dbe8e4; }
+.plan-row-track>.weekly-cell:hover, .plan-row-track>.weekly-cell.is-week-selected { background: #e4f4ef; }
+.weekly-assignee { background: #fdfefe; border-radius: 4px; box-shadow: 0 1px 3px #29494020; }
+.weekly-assignee>b { color: var(--desk-teal-dark); }
+.plan-bar { background: #cce8e2 !important; border-color: #78bdb0 !important; color: #0b5d55 !important; box-shadow: none; }
+.plan-bar.is-assigned { background: #cce8e2 !important; border-color: #78bdb0 !important; }
+.plan-bar.is-unassigned { background: #e7eded !important; border-color: #b6c8c5 !important; color: #516669 !important; }
+.plan-bar.is-soft { background: #fcf2db !important; border-color: #d6ad63 !important; color: #795b2a !important; }
+.plan-bar.is-event { background: #f6e3d6 !important; border-color: #d6a17f !important; color: #7f513b !important; }
+.plan-marker { color: var(--desk-teal) !important; }
+.plan-section-label { background: #e5efed; color: #3f6062; border-color: var(--desk-line); }
+.plan-legend, .plan-undated, .weekly-summary { border-color: var(--desk-line); }
+.plan-legend { background: #f8fbfa; color: #4c676a; }
+.plan-legend .legend-work { background: #cce8e2; border-color: #78bdb0; }
+.weekly-summary { border-top-color: var(--desk-teal); }
+.weekly-summary thead th, .weekly-summary-total { background: #e9f3f0; }
+.weekly-summary td button, .weekly-add { color: var(--desk-teal-dark) !important; }
+.plan-modal-backdrop, .canvas-modal-backdrop, .modal-backdrop, .draggable-dialog-layer { background: #122c30a3; }
+.plan-modal, .canvas-modal, .restore-modal, .draggable-dialog { border-color: var(--desk-line); box-shadow: 0 26px 80px #10262e4d; }
+.plan-inspector-head, .weekly-panel-head, .plan-catalog-head { background: #f3f8f6; border-color: var(--desk-line); }
+.plan-inspector-head small, .weekly-panel-head small, .plan-catalog-head small { color: #6d8585; text-transform: none; letter-spacing: 0; }
+.plan-catalog-tabs { border-color: var(--desk-line); }
+.plan-catalog-tabs button.active { background: #dcf0eb; color: var(--desk-teal-dark); }
+.plan-catalog-item, .weekly-record { border-color: var(--desk-line); }
+.plan-related { background: #f1f7f5; }
+.plan-related button { color: var(--desk-teal-dark); }
+
+/* Diagram editor: toolbox and paper surface, with cards that read as artifacts. */
+.canvas-palette { width: 184px; padding: 20px 12px; gap: 4px; background: #f8fbfa; border-color: var(--desk-line); }
+.canvas-palette-heading { padding: 0 10px 11px; color: #517071; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.canvas-palette-item { min-height: 42px; padding: 7px 9px; color: #35575d; border-radius: 7px; font-size: 12px; }
+.canvas-palette-item:hover, .canvas-palette-item.active { background: #e1f1ec; border-color: #a9cec3; color: #075f5b; }
+.canvas-palette-symbol { width: 29px; height: 29px; border-radius: 6px; background: #e4f1ee; color: var(--desk-teal); }
+.canvas-palette-symbol.kind-zone { background: #dceae7; color: #276961; }
+.canvas-palette-symbol.kind-actor { background: #e9e4f3; color: #715b9b; }
+.canvas-palette-symbol.kind-project { background: #dbefed; color: #087d7a; }
+.canvas-palette-symbol.kind-direction { background: #f8ead5; color: #a56e2d; }
+.canvas-palette-symbol.kind-note { background: #f9f0d8; color: #937527; }
+.canvas-palette-tip { padding: 14px 9px 0; color: #748e8d; border-top: 1px solid var(--desk-line); }
+.canvas-toolbar { height: 63px; padding: 0 18px; background: #fbfdfc; border-color: var(--desk-line); }
+.canvas-title-wrap input { color: var(--desk-ink); font-size: 19px; }
+.canvas-save-status { color: #5b8178; }
+.canvas-toolbar-actions button { color: #48686b; }
+.canvas-toolbar-actions button:hover { background: #e2f1ec; color: #075f5b; }
+.canvas-tool-divider { border-color: var(--desk-line); }
+.canvas-flow { background: #f6faf8; }
+.canvas-zone { border-radius: 12px; box-shadow: inset 0 0 0 1px #ffffffbd; }
+.canvas-zone-title { color: #284c52; font-size: 13px; }
+.canvas-card {
+  border-color: #c6d9d4;
+  border-left: 1px solid #c6d9d4;
+  border-top: 4px solid var(--item-color);
+  border-radius: 7px;
+  box-shadow: 0 5px 14px #27443e1c, 0 1px 2px #27443e18;
+  padding: 11px 13px;
+}
+.canvas-card.selected { outline-color: var(--desk-teal); }
+.canvas-card-actor { border-radius: 20px; }
+.canvas-card-project { border-top-width: 6px; }
+.canvas-card-direction { border-left: 5px solid var(--item-color); }
+.canvas-card-note { background: #fff8e6; border-color: #e5d9ad; border-top: 3px solid #d8ba68; transform: none; }
+.canvas-card-heading { color: var(--desk-ink); font-size: 13px; }
+.canvas-card-description { color: #6b8584; }
+.canvas-handle { background: var(--desk-teal); box-shadow: 0 0 0 1px #69aaa2; }
+.canvas-resize-line { border-color: var(--desk-teal); }
+.canvas-resize-handle { background: var(--desk-teal); }
+.canvas-minimap { border-color: var(--desk-line); border-radius: 7px; }
+.canvas-empty { max-width: 365px; top: 44%; }
+.canvas-empty-mark { color: #87b8ad; }
+.canvas-empty h2 { color: var(--desk-ink); font-size: 23px; letter-spacing: -.02em; }
+.canvas-empty p { color: #668180; }
+.canvas-empty button.secondary { background: #dceee8; color: #0d625b; }
+.canvas-inspector { width: 280px; background: #fbfdfc; border-color: var(--desk-line); }
+.canvas-inspector-heading small { color: #688582; text-transform: none; letter-spacing: 0; }
+.canvas-inspector-heading h2 { color: var(--desk-ink); }
+.canvas-inspector label, .canvas-color-label { color: #456568; }
+.canvas-selection-bar { border-color: var(--desk-line); box-shadow: 0 9px 26px #1a3b3830; }
+.canvas-selection-bar button { color: var(--desk-teal-dark); }
+.canvas-selection-bar button:hover { background: #e6f4ef; }
+.draggable-dialog-bar { background: #e7f1ee; border-color: var(--desk-line); color: var(--desk-ink); }
+.draggable-dialog-bar button:hover { background: #d4e9e2; }
+
+@media (max-width: 1220px) {
+  .app-header { flex-wrap: wrap; height: auto; min-height: 72px; padding-top: 8px; }
+  .brand { min-width: 180px; }
+  .main-nav { order: 3; width: 100%; height: 48px; justify-content: flex-start; padding-top: 0; }
+  .main-nav button.active::after { bottom: 0; }
+  .header-actions { margin-left: auto; }
+  .process-toolbar h1 { width: 100%; }
+}
+@media (max-width: 760px) {
+  .app-header { gap: 4px; padding: 8px 10px 0; }
+  .brand strong { font-size: 13px; }
+  .brand small { display: none; }
+  .main-nav { height: 46px; justify-content: space-between; }
+  .main-nav button { flex: 1; justify-content: center; padding: 0 4px; font-size: 11px; gap: 4px; }
+  .header-actions { min-width: auto; }
+  .backup-shortcut { display: none; }
+  .process-toolbar, .plan-toolbar { padding: 10px; }
+  .process-toolbar input[type=search] { width: min(100%, 200px); }
+  .pv-actors { width: 170px; }
+  .pv-tree { width: 240px; }
+  .canvas-palette { width: 56px; padding: 12px 5px; }
+  .canvas-palette-item { justify-content: center; }
+  .canvas-palette-heading, .canvas-palette-item>span:last-child, .canvas-palette-tip { display: none; }
+  .canvas-toolbar { height: 54px; padding: 0 8px; }
+  .canvas-title-wrap input { font-size: 14px; width: 115px; }
+  .canvas-inspector { width: 240px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-btn, .plan-page button, .canvas-toolbar-actions button, .quiet-button,
+  .canvas-create-actions button, .canvas-modal-actions button { transition: none; }
+}

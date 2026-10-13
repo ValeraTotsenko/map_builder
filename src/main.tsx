@@ -6,6 +6,7 @@ import { ProcessView } from './process';
 import { PlanView } from './plan';
 import { CanvasView } from './canvas';
 import './style.css';
+import './design.css';
 
 type Page = 'process' | 'plan' | 'canvas';
 
