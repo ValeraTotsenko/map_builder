@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { Actor, Checkpoint, DateReference, Dependency, Group, Handover, Participation, Process, SharedMilestone, Snapshot, Stage, WorkspaceData } from '../model'
 import { createId, unknownDate, validateDateOrder, validateDateReference, validateSnapshot } from '../model'
+import { DraggableDialog } from '../DraggableDialog'
 import './ProcessView.css'
 
 type Kind = 'group' | 'process' | 'stage' | 'checkpoint' | 'milestone' | 'actor' | 'participation' | 'handover' | 'dependency'
@@ -214,7 +215,8 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
       return fail(field, message.replace(/^data\.\w+\[\d+\](?:\.\w+)?:\s*/, ''))
     }
     onChange(nextSnapshot)
-    setDraft(entity); setIsNew(false); setFormError(null)
+    if (isNew) close()
+    else { setDraft(entity); setFormError(null) }
   }
   const remove = () => { if (!selected) return; onChange({ ...snapshot, data: removeRelated(data, selected, replacementId || undefined) }); close(); setReplacementId('') }
 
@@ -339,6 +341,25 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
     }
   }
 
+  const editorMarkup = inspectorOpen && selected && draft ? (
+<aside className="pv-inspector" style={{ width: inspectorWidth }}><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
+        <label className="pv-inspector-size">Ширина карточки <input type="range" min="280" max="560" step="10" value={inspectorWidth} onChange={e => setInspectorWidth(Number(e.target.value))} aria-label="Ширина инспектора" /></label>
+        {selected.kind === 'stage' && !isNew && <div className="pv-selected-detail"><strong>{draft.name}</strong><span>{formatRef(draft.plannedStart)} — {formatRef(draft.plannedEnd)}</span></div>}
+        {confirmDelete ? <div className="pv-confirm"><strong>Удалить «{draft.name || kindTitle[selected.kind]}»?</strong>{countConsequences(selected.kind, selected.id, data).map(line => <div key={line}>{line}</div>)}{selected.kind === 'actor' && data.actors.some(a => a.id !== selected.id && a.type === draft.type) && <label style={{ display: 'block', marginTop: 10 }}>Перепривязать связи к участнику<select value={replacementId} onChange={e => setReplacementId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4 }}><option value="">Удалить связи и назначения</option>{data.actors.filter(a => a.id !== selected.id && a.type === draft.type).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}<div className="pv-form-actions"><button className="pv-btn pv-btn-danger" onClick={remove}>Удалить</button><button className="pv-btn" onClick={() => setConfirmDelete(false)}>Отмена</button></div></div> : <><div className="pv-form">{form()}{fieldError('_form')}<div className="pv-form-actions"><button className="pv-btn pv-btn-primary" onClick={save}>Сохранить</button>{!isNew && <button className="pv-btn pv-btn-danger" onClick={() => setConfirmDelete(true)}>Удалить</button>}<button className="pv-btn" onClick={close}>Закрыть</button></div></div>
+          {!isNew && <><div className="pv-form-section">Связи и участие</div><div className="pv-related">
+            {(selected.kind === 'process' || selected.kind === 'stage' || selected.kind === 'checkpoint') && <><button onClick={() => create('participation', selected)}>+ Участие</button>{selected.kind !== 'checkpoint' && <><button onClick={() => create('dependency', selected)}>+ Зависимость</button><button onClick={() => create('handover', selected)}>+ Передача</button></>}</>}
+            {relatedParticipation.map(p => <div key={p.id}><button onClick={() => select('participation', p.id)}>{data.actors.find(a => a.id === p.actorId)?.name || 'Участник'} · {participationTypes[p.type]}{p.expectedContribution ? ` — ${p.expectedContribution}` : ''}</button></div>)}
+            {relatedHandovers.map(h => <div key={h.id}><button onClick={() => select('handover', h.id)}>{data.actors.find(a => a.id === h.fromActorId)?.name || '?'} → {data.actors.find(a => a.id === h.toActorId)?.name || '?'}: {h.description}</button></div>)}
+            {selected.kind === 'actor' && data.participations.filter(p => p.actorId === selected.id).map(p => <div key={p.id}><button onClick={() => select(p.targetType, p.targetId)}>{participationTypes[p.type]} · {linkedTarget(p.targetId)}{p.expectedContribution ? ` — ${p.expectedContribution}` : ''}</button></div>)}
+            {data.dependencies.filter(d => d.sourceId === selected.id || d.targetId === selected.id).map(d => <div key={d.id}><button onClick={() => select('dependency', d.id)}>{linkedTarget(d.sourceId)} {d.type === 'prerequisite' ? '→' : '⇢'} {linkedTarget(d.targetId)}{conflicts.some(x => x.id === d.id) ? ' ⚠ сроки пересекаются' : ''}</button></div>)}
+            {data.crossLinks.filter(l => l.targetId === selected.id).map(l => <div key={l.id}><button onClick={() => onNavigateToPlan(l.sourceId)}>↗ План: {data.deliveries.find(d => d.id === l.sourceId)?.name || data.weekBlocks.find(b => b.id === l.sourceId)?.content || l.sourceId}</button>{l.note && ` — ${l.note}`}</div>)}
+            {selected.kind === 'process' && data.stages.filter(s => s.processId === selected.id).map(s => <div key={s.id}><button onClick={() => select('stage', s.id)}>Этап: {s.name} · {formatRef(s.plannedStart)} — {formatRef(s.plannedEnd)}</button></div>)}
+            {selected.kind === 'process' && data.checkpoints.filter(c => c.processId === selected.id).map(c => <div key={c.id}><button onClick={() => select('checkpoint', c.id)}>Точка: {c.name} · {formatRef(c.plannedDate)}{c.confirmation ? ` · ${c.confirmation}` : ''}</button></div>)}
+          </div></>}
+        </>}
+      </aside>
+  ) : null
+
   return <div className="process-view">
     <div className="process-toolbar">
       <h1>Карта процессов</h1>
@@ -383,22 +404,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
           {!!conflicts.length && <span className="pv-links-note">⚠ Конфликт сроков предпосылок: {conflicts.length}</span>}
         </div>
       </div>
-      {inspectorOpen && selected && draft && <aside className="pv-inspector" style={{ width: inspectorWidth }}><div className="pv-inspector-header"><h2>{isNew ? 'Новый объект' : kindTitle[selected.kind]}<small style={{ display: 'block', color: '#64748b', fontSize: 11, fontWeight: 400 }}>{kindTitle[selected.kind]}</small></h2><button className="pv-mini" aria-label="Закрыть карточку" onClick={close}>✕</button></div>
-        <label className="pv-inspector-size">Ширина карточки <input type="range" min="280" max="560" step="10" value={inspectorWidth} onChange={e => setInspectorWidth(Number(e.target.value))} aria-label="Ширина инспектора" /></label>
-        {selected.kind === 'stage' && !isNew && <div className="pv-selected-detail"><strong>{draft.name}</strong><span>{formatRef(draft.plannedStart)} — {formatRef(draft.plannedEnd)}</span></div>}
-        {confirmDelete ? <div className="pv-confirm"><strong>Удалить «{draft.name || kindTitle[selected.kind]}»?</strong>{countConsequences(selected.kind, selected.id, data).map(line => <div key={line}>{line}</div>)}{selected.kind === 'actor' && data.actors.some(a => a.id !== selected.id && a.type === draft.type) && <label style={{ display: 'block', marginTop: 10 }}>Перепривязать связи к участнику<select value={replacementId} onChange={e => setReplacementId(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 4 }}><option value="">Удалить связи и назначения</option>{data.actors.filter(a => a.id !== selected.id && a.type === draft.type).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}<div className="pv-form-actions"><button className="pv-btn pv-btn-danger" onClick={remove}>Удалить</button><button className="pv-btn" onClick={() => setConfirmDelete(false)}>Отмена</button></div></div> : <><div className="pv-form">{form()}{fieldError('_form')}<div className="pv-form-actions"><button className="pv-btn pv-btn-primary" onClick={save}>Сохранить</button>{!isNew && <button className="pv-btn pv-btn-danger" onClick={() => setConfirmDelete(true)}>Удалить</button>}<button className="pv-btn" onClick={close}>Закрыть</button></div></div>
-          {!isNew && <><div className="pv-form-section">Связи и участие</div><div className="pv-related">
-            {(selected.kind === 'process' || selected.kind === 'stage' || selected.kind === 'checkpoint') && <><button onClick={() => create('participation', selected)}>+ Участие</button>{selected.kind !== 'checkpoint' && <><button onClick={() => create('dependency', selected)}>+ Зависимость</button><button onClick={() => create('handover', selected)}>+ Передача</button></>}</>}
-            {relatedParticipation.map(p => <div key={p.id}><button onClick={() => select('participation', p.id)}>{data.actors.find(a => a.id === p.actorId)?.name || 'Участник'} · {participationTypes[p.type]}{p.expectedContribution ? ` — ${p.expectedContribution}` : ''}</button></div>)}
-            {relatedHandovers.map(h => <div key={h.id}><button onClick={() => select('handover', h.id)}>{data.actors.find(a => a.id === h.fromActorId)?.name || '?'} → {data.actors.find(a => a.id === h.toActorId)?.name || '?'}: {h.description}</button></div>)}
-            {selected.kind === 'actor' && data.participations.filter(p => p.actorId === selected.id).map(p => <div key={p.id}><button onClick={() => select(p.targetType, p.targetId)}>{participationTypes[p.type]} · {linkedTarget(p.targetId)}{p.expectedContribution ? ` — ${p.expectedContribution}` : ''}</button></div>)}
-            {data.dependencies.filter(d => d.sourceId === selected.id || d.targetId === selected.id).map(d => <div key={d.id}><button onClick={() => select('dependency', d.id)}>{linkedTarget(d.sourceId)} {d.type === 'prerequisite' ? '→' : '⇢'} {linkedTarget(d.targetId)}{conflicts.some(x => x.id === d.id) ? ' ⚠ сроки пересекаются' : ''}</button></div>)}
-            {data.crossLinks.filter(l => l.targetId === selected.id).map(l => <div key={l.id}><button onClick={() => onNavigateToPlan(l.sourceId)}>↗ План: {data.deliveries.find(d => d.id === l.sourceId)?.name || data.weekBlocks.find(b => b.id === l.sourceId)?.content || l.sourceId}</button>{l.note && ` — ${l.note}`}</div>)}
-            {selected.kind === 'process' && data.stages.filter(s => s.processId === selected.id).map(s => <div key={s.id}><button onClick={() => select('stage', s.id)}>Этап: {s.name} · {formatRef(s.plannedStart)} — {formatRef(s.plannedEnd)}</button></div>)}
-            {selected.kind === 'process' && data.checkpoints.filter(c => c.processId === selected.id).map(c => <div key={c.id}><button onClick={() => select('checkpoint', c.id)}>Точка: {c.name} · {formatRef(c.plannedDate)}{c.confirmation ? ` · ${c.confirmation}` : ''}</button></div>)}
-          </div></>}
-        </>}
-      </aside>}
+      {editorMarkup && (isNew ? <DraggableDialog title={`Добавить: ${kindTitle[selected!.kind]}`} onClose={close} className="pv-create-window">{editorMarkup}</DraggableDialog> : editorMarkup)}
     </div>
   </div>
 }

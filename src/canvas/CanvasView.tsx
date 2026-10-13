@@ -3,6 +3,7 @@ import { ReactFlow, Background, Controls, Handle, MarkerType, MiniMap, NodeResiz
 import '@xyflow/react/dist/style.css';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Copy, Focus, Link2, Maximize2, Plus, Redo2, Trash2, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { createId, type Snapshot, type WorkspaceData } from '../model';
+import { DraggableDialog } from '../DraggableDialog';
 import './canvas.css';
 
 type CNode = WorkspaceData['canvasNodes'][number];
@@ -10,6 +11,8 @@ type CZone = WorkspaceData['canvasZones'][number];
 type CEdge = WorkspaceData['canvasEdges'][number];
 type Kind = CNode['kind'];
 type PaletteKind = Kind | 'zone' | 'edge';
+type CreateKind = Exclude<PaletteKind, 'edge'>;
+type CreateDraft = { kind: CreateKind; name: string; description: string; color: string };
 type Selection = { nodes: string[]; edges: string[] };
 type SaveState = 'saved' | 'saving' | 'error';
 type CardData = { model: CNode; editing: boolean; onEdit: (id: string, name: string) => void; onFinish: () => void };
@@ -88,6 +91,8 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null);
+  const [createError, setCreateError] = useState('');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [past, setPast] = useState<WorkspaceData[]>([]);
   const [future, setFuture] = useState<WorkspaceData[]>([]);
@@ -137,21 +142,21 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   useEffect(() => setFlowNodes(buildFlowNodes(data, editingId, selectionRef.current.nodes, editName, finishEdit, resizeZone)), [data, editingId, editName, finishEdit, resizeZone]);
   const edges = useMemo(() => buildFlowEdges(data, selection.nodes, selection.edges), [data, selection.nodes, selection.edges]);
 
-  const addAt = useCallback((kind: PaletteKind, x: number, y: number) => {
+  const addAt = useCallback((kind: PaletteKind, x: number, y: number, details?: Omit<CreateDraft, 'kind'>) => {
     if (kind === 'edge') { setTool('edge'); setConnectFrom(null); setNotice('Выберите первую карточку, затем вторую.'); return; }
     const d = current.current; const id = makeId(); const stamp = NOW();
     if (kind === 'zone') {
-      const zone: CZone = { id, name: 'Новая зона', color: COLORS[d.canvasZones.length % COLORS.length], x, y, width: 450, height: 280, zIndex: 0, createdAt: stamp, updatedAt: stamp };
+      const zone: CZone = { id, name: details?.name || 'Новая зона', color: details?.color || COLORS[d.canvasZones.length % COLORS.length], x, y, width: 450, height: 280, zIndex: 0, createdAt: stamp, updatedAt: stamp };
       publish({ ...d, canvasZones: [...d.canvasZones, zone] });
     } else {
       const width = kind === 'note' ? 200 : 220, height = kind === 'note' ? 112 : 90;
       const zone = [...d.canvasZones].reverse().find(item => x >= item.x + 12 && y >= item.y + 42 && x + width <= item.x + item.width - 12 && y + height <= item.y + item.height - 12);
-      const node: CNode = { id, kind, name: DEFAULT_NAME[kind], description: '', color: KIND_COLOR[kind], x, y, width, height, zIndex: 1, zoneId: zone?.id ?? null, ref: null, createdAt: stamp, updatedAt: stamp };
+      const node: CNode = { id, kind, name: details?.name || DEFAULT_NAME[kind], description: details?.description || '', color: details?.color || KIND_COLOR[kind], x, y, width, height, zIndex: 1, zoneId: zone?.id ?? null, ref: null, createdAt: stamp, updatedAt: stamp };
       publish({ ...d, canvasNodes: [...d.canvasNodes, node] });
     }
-    setSelection({ nodes: [id], edges: [] }); setEditingId(id); setTool(null);
+    setSelection({ nodes: [id], edges: [] }); setEditingId(details ? null : id); setInspectorOpen(true); setTool(null);
   }, [publish]);
-  const addAtCenter = (kind: PaletteKind) => {
+  const addAtCenter = (kind: PaletteKind, details?: Omit<CreateDraft, 'kind'>) => {
     if (kind === 'edge') { addAt(kind, 0, 0); return; }
     const pane = document.querySelector('.canvas-flow')?.getBoundingClientRect();
     const position = flow.current?.screenToFlowPosition({ x: (pane?.left ?? 0) + (pane?.width ?? 800) / 2, y: (pane?.top ?? 0) + (pane?.height ?? 600) / 2 }) ?? { x: 100, y: 100 };
@@ -182,7 +187,19 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     }
     candidates.sort((a, b) => a.score - b.score);
     const chosen = candidates[0] ?? center;
-    addAt(kind, chosen.x, chosen.y);
+    addAt(kind, chosen.x, chosen.y, details);
+  };
+  const openCreate = (kind: PaletteKind) => {
+    if (kind === 'edge') { addAtCenter('edge'); return; }
+    setCreateError(''); setTool(null); setConnectFrom(null);
+    setCreateDraft({ kind, name: kind === 'zone' ? 'Новая зона' : DEFAULT_NAME[kind], description: '', color: kind === 'zone' ? COLORS[data.canvasZones.length % COLORS.length] : KIND_COLOR[kind] });
+  };
+  const saveCreate = () => {
+    if (!createDraft) return;
+    const name = createDraft.name.trim();
+    if (!name) { setCreateError('Укажите название элемента.'); return; }
+    addAtCenter(createDraft.kind, { name, description: createDraft.description.trim(), color: createDraft.color });
+    setCreateDraft(null);
   };
   const connect = useCallback((sourceId: string, targetId: string) => {
     if (sourceId === targetId) { setNotice('Карточку нельзя связать с самой собой.'); return; }
@@ -254,7 +271,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
       else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') { clipboard.current = [...selectionRef.current.nodes]; event.preventDefault(); }
       else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') { event.preventDefault(); duplicate(clipboard.current); }
       else if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); requestDelete(); }
-      else if (event.key === 'Escape') { setTool(null); setConnectFrom(null); setNotice(''); }
+      else if (event.key === 'Escape') { setCreateDraft(null); setTool(null); setConnectFrom(null); setNotice(''); }
     };
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
   }, [undo, redo, duplicate, requestDelete]);
@@ -280,16 +297,26 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
   };
 
   return <div className="canvas-screen">
-    <aside className="canvas-palette" aria-label="Палитра элементов"><div className="canvas-palette-heading">Элементы</div>{(['zone','action','actor','project','direction','note','edge'] as PaletteKind[]).map(kind => <button key={kind} className={`canvas-palette-item${tool === kind ? ' active' : ''}`} onClick={() => addAtCenter(kind)} draggable={kind !== 'edge'} onDragStart={event => event.dataTransfer.setData('application/x-canvas-kind', kind)} title={`Добавить: ${KIND_LABEL[kind]}`}><span className={`canvas-palette-symbol kind-${kind}`}>{kind === 'zone' ? '▧' : kind === 'edge' ? '↗' : KIND_MARK[kind]}</span><span>{KIND_LABEL[kind]}</span></button>)}<div className="canvas-palette-tip">Нажмите или перетащите элемент на полотно. Для связи соедините маркеры карточек.</div></aside>
-    <section className="canvas-workspace"><div className="canvas-toolbar"><div className="canvas-title-wrap"><input aria-label="Название схемы" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onBlur={() => { const name = titleDraft.trim() || 'Схема'; setTitleDraft(name); if (name !== data.canvas.name) changeProperty(data.canvas.id, 'name', name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}/><span className={`canvas-save-status ${saveState}`}>{saveState === 'saved' ? <><Check size={12}/> Сохранено</> : saveState === 'saving' ? 'Сохранение…' : 'Ошибка сохранения'}</span></div><div className="canvas-toolbar-actions"><button onClick={undo} disabled={!past.length} title="Отменить (Ctrl+Z)"><Undo2 size={17}/></button><button onClick={redo} disabled={!future.length} title="Повторить (Ctrl+Y)"><Redo2 size={17}/></button><span className="canvas-tool-divider"/><button onClick={() => flow.current?.fitView({ padding: .16, duration: 300 })} title="Уместить схему"><Maximize2 size={16}/><span>Уместить</span></button><button onClick={() => flow.current?.zoomOut({ duration: 180 })} title="Уменьшить"><ZoomOut size={17}/></button><button onClick={() => flow.current?.zoomIn({ duration: 180 })} title="Увеличить"><ZoomIn size={17}/></button><button className="canvas-add-button" onClick={() => addAtCenter('action')}><Plus size={16}/> Добавить</button></div></div>
+    <aside className="canvas-palette" aria-label="Палитра элементов"><div className="canvas-palette-heading">Элементы</div>{(['zone','action','actor','project','direction','note','edge'] as PaletteKind[]).map(kind => <button key={kind} className={`canvas-palette-item${tool === kind ? ' active' : ''}`} onClick={() => openCreate(kind)} draggable={kind !== 'edge'} onDragStart={event => event.dataTransfer.setData('application/x-canvas-kind', kind)} title={`Добавить: ${KIND_LABEL[kind]}`}><span className={`canvas-palette-symbol kind-${kind}`}>{kind === 'zone' ? '▧' : kind === 'edge' ? '↗' : KIND_MARK[kind]}</span><span>{KIND_LABEL[kind]}</span></button>)}<div className="canvas-palette-tip">Нажмите или перетащите элемент на полотно. Для связи соедините маркеры карточек.</div></aside>
+    <section className="canvas-workspace"><div className="canvas-toolbar"><div className="canvas-title-wrap"><input aria-label="Название схемы" value={titleDraft} onChange={event => setTitleDraft(event.target.value)} onBlur={() => { const name = titleDraft.trim() || 'Схема'; setTitleDraft(name); if (name !== data.canvas.name) changeProperty(data.canvas.id, 'name', name); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}/><span className={`canvas-save-status ${saveState}`}>{saveState === 'saved' ? <><Check size={12}/> Сохранено</> : saveState === 'saving' ? 'Сохранение…' : 'Ошибка сохранения'}</span></div><div className="canvas-toolbar-actions"><button onClick={undo} disabled={!past.length} title="Отменить (Ctrl+Z)"><Undo2 size={17}/></button><button onClick={redo} disabled={!future.length} title="Повторить (Ctrl+Y)"><Redo2 size={17}/></button><span className="canvas-tool-divider"/><button onClick={() => flow.current?.fitView({ padding: .16, duration: 300 })} title="Уместить схему"><Maximize2 size={16}/><span>Уместить</span></button><button onClick={() => flow.current?.zoomOut({ duration: 180 })} title="Уменьшить"><ZoomOut size={17}/></button><button onClick={() => flow.current?.zoomIn({ duration: 180 })} title="Увеличить"><ZoomIn size={17}/></button><button className="canvas-add-button" onClick={() => openCreate('action')}><Plus size={16}/> Добавить</button></div></div>
       {notice && <div className="canvas-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Закрыть"><X size={14}/></button></div>}
       <div className="canvas-flow" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const kind = event.dataTransfer.getData('application/x-canvas-kind') as PaletteKind; if (!KIND_LABEL[kind] || kind === 'edge') return; const point = flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY }); if (point) addAt(kind, Math.round(point.x), Math.round(point.y)); }}>
         <ReactFlow nodes={flowNodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={(changes: NodeChange[]) => setFlowNodes(items => applyNodeChanges(changes, items))} onNodeDragStop={onDragStop} onNodeClick={onNodeClick} onEdgeClick={(_event, edge) => { setSelection({ nodes: [], edges: [edge.id] }); setInspectorOpen(true); }} onPaneClick={() => setSelection({ nodes: [], edges: [] })} onNodeDoubleClick={(_event, node) => setEditingId(node.id)} onConnect={onConnect} onSelectionChange={({ nodes, edges }) => { const nextNodes = nodes.map(item => item.id); const nextEdges = edges.map(item => item.id); if (!nextNodes.length && !nextEdges.length) return; setSelection(previous => previous.nodes.join("|") === nextNodes.join("|") && previous.edges.join("|") === nextEdges.join("|") ? previous : { nodes: nextNodes, edges: nextEdges }); }} onInit={instance => { flow.current = instance; }} onMoveEnd={(_event, viewport) => { const d = current.current; if (Math.abs(d.canvas.viewport.x - viewport.x) < 1 && Math.abs(d.canvas.viewport.y - viewport.y) < 1 && Math.abs(d.canvas.viewport.zoom - viewport.zoom) < .001) return; publish({ ...d, canvas: { ...d.canvas, viewport, updatedAt: NOW() } }, false); }} defaultViewport={data.canvas.viewport} minZoom={.05} maxZoom={4} zoomOnScroll={false} panOnScroll={false} panOnDrag selectionOnDrag={false} zoomOnDoubleClick={false} multiSelectionKeyCode={['Control','Meta','Shift']} deleteKeyCode={null} fitView={false} proOptions={{ hideAttribution: true }}><Background color="#dce3ee" gap={22} size={1}/><MiniMap pannable zoomable className="canvas-minimap" nodeColor={node => node.type === 'zone' ? '#dce7f9' : '#8da5d6'}/><Controls showZoom={false} showFitView={false} showInteractive={false}/></ReactFlow>
-        {!data.canvasNodes.length && !data.canvasZones.length && <div className="canvas-empty"><div className="canvas-empty-mark">◇</div><h2>Начните с одной мысли</h2><p>Добавьте зону или карточку, затем соедините шаги и участников.</p><div><button onClick={() => addAtCenter('zone')}>Добавить зону</button><button className="secondary" onClick={makeDemo}>Создать пример</button></div></div>}
+        {!data.canvasNodes.length && !data.canvasZones.length && <div className="canvas-empty"><div className="canvas-empty-mark">◇</div><h2>Начните с одной мысли</h2><p>Добавьте зону или карточку, затем соедините шаги и участников.</p><div><button onClick={() => openCreate('zone')}>Добавить зону</button><button className="secondary" onClick={makeDemo}>Создать пример</button></div></div>}
       </div>
       {(selection.nodes.length || selection.edges.length) > 0 && <div className="canvas-selection-bar"><strong>Выбрано: {selection.nodes.length + selection.edges.length}</strong><button onClick={() => duplicate(selection.nodes)} disabled={!selection.nodes.length}><Copy size={14}/> Копировать</button><button onClick={requestDelete}><Trash2 size={14}/> Удалить</button><button onClick={() => setInspectorOpen(value => !value)}>{inspectorOpen ? 'Скрыть свойства' : 'Показать свойства'}</button></div>}
     </section>
     {selected && inspectorOpen && <aside className="canvas-inspector"><div className="canvas-inspector-heading"><div><small>Свойства</small><h2>{selectedNode ? KIND_LABEL[selectedNode.kind] : selectedZone ? 'Зона' : 'Связь'}</h2></div><button onClick={() => setInspectorOpen(false)} aria-label="Скрыть свойства"><X size={16}/></button></div>{selectedEdge ? <><label>Подпись<input key={`${selectedEdge.id}:label`} defaultValue={selectedEdge.label} maxLength={100} placeholder="Например, согласует" onBlur={event => { if (event.target.value !== selectedEdge.label) changeProperty(selectedEdge.id, 'label', event.target.value); }}/></label><label>Направление<select value={selectedEdge.arrow} onChange={event => changeProperty(selectedEdge.id, 'arrow', event.target.value)}><option value="forward">От источника к цели →</option><option value="reverse">К источнику ←</option><option value="none">Без стрелки —</option></select></label></> : <><label>Название<input key={`${selected.id}:name`} defaultValue={(selected as CNode | CZone).name} maxLength={160} onBlur={event => { const value = event.target.value.trim(); if (value && value !== (selected as CNode | CZone).name) changeProperty(selected.id, 'name', value); }}/></label>{selectedNode && <label>Пояснение<textarea key={`${selected.id}:description`} defaultValue={selectedNode.description} maxLength={1000} placeholder="Необязательно" rows={4} onBlur={event => { if (event.target.value !== selectedNode.description) changeProperty(selected.id, 'description', event.target.value); }}/></label>}<div className="canvas-color-label">Цвет</div><div className="canvas-colors">{COLORS.map(color => <button key={color} style={{ backgroundColor: color }} className={(selected as CNode | CZone).color === color ? 'active' : ''} aria-label={`Цвет ${color}`} onClick={() => changeProperty(selected.id, 'color', color)} />)}</div></> }</aside>}
+    {createDraft && <DraggableDialog title="Добавить элемент схемы" onClose={() => setCreateDraft(null)} className="canvas-create-window">
+      <div className="canvas-create-form">
+        <label>Тип элемента<select value={createDraft.kind} onChange={event => { const kind = event.target.value as CreateKind; setCreateDraft({ kind, name: kind === 'zone' ? 'Новая зона' : DEFAULT_NAME[kind], description: '', color: kind === 'zone' ? COLORS[data.canvasZones.length % COLORS.length] : KIND_COLOR[kind] }); }}>{(['zone','action','actor','project','direction','note'] as CreateKind[]).map(kind => <option key={kind} value={kind}>{KIND_LABEL[kind]}</option>)}</select></label>
+        <label>Название<input autoFocus maxLength={160} value={createDraft.name} onChange={event => { setCreateDraft({ ...createDraft, name: event.target.value }); setCreateError(''); }} onKeyDown={event => { if (event.key === 'Enter') saveCreate(); }}/></label>
+        {createError && <p className="canvas-create-error" role="alert">{createError}</p>}
+        {createDraft.kind !== 'zone' && <label>Пояснение<textarea rows={3} maxLength={1000} value={createDraft.description} onChange={event => setCreateDraft({ ...createDraft, description: event.target.value })} placeholder="Необязательно"/></label>}
+        <div className="canvas-create-color-label">Цвет</div><div className="canvas-create-colors">{COLORS.map(color => <button type="button" key={color} style={{ background: color }} className={createDraft.color === color ? 'active' : ''} aria-label={`Цвет ${color}`} onClick={() => setCreateDraft({ ...createDraft, color })}/>)}</div>
+        <div className="canvas-create-actions"><button type="button" onClick={() => setCreateDraft(null)}>Отмена</button><button type="button" className="canvas-create-save" onClick={saveCreate}>Добавить на схему</button></div>
+      </div>
+    </DraggableDialog>}
     {showDeleteDialog && <div className="canvas-modal-backdrop"><div className="canvas-modal" role="dialog" aria-modal="true" aria-labelledby="canvas-delete-title"><h2 id="canvas-delete-title">Удалить выбранное?</h2><p>{linkedEdgeCount ? `Вместе с карточками будут удалены связи: ${linkedEdgeCount}. ` : ''}{containedCount ? `В выбранных зонах находятся карточки: ${containedCount}.` : ''}</p><div className="canvas-modal-actions"><button onClick={() => setConfirmDelete(false)}>Отмена</button>{selectedZoneCount > 0 && containedCount > 0 && <button onClick={() => performDelete('keep')}>Оставить карточки</button>}<button className="danger" onClick={() => performDelete('remove')}>{containedCount > 0 ? 'Удалить с содержимым' : 'Удалить'}</button></div></div></div>}
   </div>;
 }

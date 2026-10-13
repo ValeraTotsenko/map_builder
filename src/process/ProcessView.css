@@ -77,3 +77,5 @@
 .pv-selected-detail strong{font-size:12px;color:#17386b}
 .pv-selected-detail span{font-size:11px;color:#47648b}
 .pv-inspector{min-width:280px;max-width:min(560px,90vw)}
+
+.pv-create-window .pv-inspector{width:100%!important;min-width:0;max-width:none;height:auto;max-height:none;overflow:visible;border:0;padding:20px 24px 24px}.pv-create-window .pv-inspector-header,.pv-create-window .pv-inspector-size{display:none}.pv-create-window .pv-form{gap:13px}.pv-create-window .pv-form-actions{position:sticky;bottom:-24px;background:#fff;border-top:1px solid #e5eaf0;padding:12px 0 0;margin-top:8px}

@@ -1,0 +1,9 @@
+.draggable-dialog-layer{position:fixed;inset:0;z-index:120;background:#17212f38}
+.draggable-dialog{position:absolute;left:50%;top:50%;width:min(720px,calc(100vw - 28px));max-height:calc(100vh - 28px);display:flex;flex-direction:column;background:#fff;border:1px solid #ced8e6;border-radius:13px;box-shadow:0 18px 70px #1423384a;overflow:hidden}
+.draggable-dialog-bar{height:46px;flex:none;display:flex;align-items:center;gap:9px;padding:0 12px 0 16px;background:#f2f5fa;border-bottom:1px solid #dfe6ef;color:#26384f;cursor:move;touch-action:none;user-select:none}
+.draggable-dialog-bar strong{font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draggable-dialog-grip{font-size:17px;letter-spacing:-4px;color:#91a0b3;margin-right:5px}
+.draggable-dialog-bar button{border:0;background:transparent;color:#66788e;font-size:23px;line-height:1;padding:3px 8px;border-radius:6px;cursor:pointer}
+.draggable-dialog-bar button:hover{background:#e2e9f2;color:#26384f}
+.draggable-dialog-content{min-height:0;overflow:auto}
+@media(max-width:700px){.draggable-dialog{width:calc(100vw - 16px);max-height:calc(100vh - 16px)}.draggable-dialog-bar{height:42px}}
