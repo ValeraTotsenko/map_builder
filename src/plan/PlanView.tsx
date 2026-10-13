@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import type { Snapshot, WeeklyAssignment } from '../model';
 import WeeklyTasksPanel from './WeeklyTasksPanel';
 import WeeklyLoadDialog from './WeeklyLoadDialog';
+import PlanHelpDialog from './PlanHelpDialog';
 import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
@@ -90,6 +91,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [loadOpen, setLoadOpen] = useState(false);
   const [weekCell, setWeekCell] = useState<WeekCell | null>(null);
   const [catalog, setCatalog] = useState<CatalogKind | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const planScroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (initialSelection) { setDraft(null); setSelection(parseSelection(snapshot, initialSelection)); } }, [initialSelection]);
@@ -100,7 +102,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft]);
   useEffect(() => {
-    if (loadOpen || (!catalog && !selection && !weekCell)) return;
+    if (helpOpen || loadOpen || (!catalog && !selection && !weekCell)) return;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (catalog) setCatalog(null);
@@ -109,7 +111,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     };
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
-  }, [catalog, selection, weekCell, loadOpen, draft]);
+  }, [catalog, selection, weekCell, loadOpen, helpOpen, draft]);
   const weeks = useMemo(() => Array.from({ length: weeksCount }, (_, i) => addWeeks(origin, i)), [origin, weeksCount]);
   useEffect(() => {
     if (!selectedWeek || !planScroll.current) return;
@@ -460,6 +462,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         <button onClick={() => add('person')}>+ Человек</button>
         <button onClick={() => add('event')}>+ Событие</button>
         <button className="plan-catalog-trigger" onClick={() => { setSelection(null); setDraft(null); setWeekCell(null); setLoadOpen(false); setCatalog('person'); }}>Объекты плана</button>
+        <button className="plan-help-trigger" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">? Справка</button>
         <div className="plan-export"><button disabled={exporting} onClick={() => exportXlsx('current')}>{exporting ? 'Готовим файл…' : 'Экспорт в Excel: выборка'}</button><button disabled={exporting} onClick={() => exportXlsx('all')}>Весь план</button></div>
       </div>
     </header>
@@ -533,6 +536,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       <div className="plan-inspector-foot"><button className="plan-primary" onClick={saveDraft}>Сохранить</button><button onClick={closeInspector}>Отмена</button>{!isDraft && <button className="danger" onClick={removeSelected}>Удалить</button>}</div>
     </aside></div></div>}
     {catalog && <PlanEntitiesDialog snapshot={snapshot} active={catalog} onSelect={setCatalog} onOpen={choose} onOpenAssignment={item => { setCatalog(null); setSelectedWeek(item.weekStart); setWeekCell({ projectId: item.projectId, deliveryId: item.deliveryId || null, weekStart: item.weekStart }); setLoadOpen(false); }} onAdd={add} onClose={() => setCatalog(null)} />}
+    {helpOpen && <PlanHelpDialog onClose={() => setHelpOpen(false)} />}
   </div>;
 }
 
