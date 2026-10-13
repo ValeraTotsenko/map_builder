@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import type { Snapshot } from '../model';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import type { Snapshot, WeeklyAssignment } from '../model';
+import WeeklyTasksPanel from './WeeklyTasksPanel';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
+import './weekly_style.css';
 
 type EntityKind = 'project' | 'delivery' | 'lane' | 'block' | 'event' | 'person' | 'estimate' | 'link';
 type DateReference = { kind: 'unknown'; text?: string } | { kind: 'exact'; date: string; text?: string } | { kind: 'range'; start: string; end: string; text?: string };
 type Selection = { kind: EntityKind; id: string } | null;
 type Draft = { kind: EntityKind; item: Record<string, any> };
 type FilterState = { search: string; project: string; delivery: string; lane: string; person: string; status: string };
+type WeekCell = { projectId: string; deliveryId: string | null; weekStart: string };
+type TaskValues = Pick<WeeklyAssignment, 'title' | 'projectId' | 'deliveryId' | 'personId' | 'weekStart' | 'count' | 'note'>;
+type RecordScope = { personId?: string | null; projectId?: string };
 type PlanViewProps = { snapshot: Snapshot; onChange: (next: Snapshot) => void; onNavigateToProcess: (targetId: string) => void; initialSelection?: string };
 
 const DAY = 86400000;
@@ -72,13 +77,28 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
   const [fieldError, setFieldError] = useState('');
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
+  const [weekCell, setWeekCell] = useState<WeekCell | null>(null);
+  const [recordScope, setRecordScope] = useState<RecordScope | null>(null);
+  const planScroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (initialSelection) { setDraft(null); setSelection(parseSelection(snapshot, initialSelection)); } }, [initialSelection]);
   const weeks = useMemo(() => Array.from({ length: weeksCount }, (_, i) => addWeeks(origin, i)), [origin, weeksCount]);
+  useEffect(() => {
+    if (!selectedWeek || !planScroll.current) return;
+    const index = weekIndex(selectedWeek, origin);
+    if (index < 0 || index >= weeksCount) return;
+    const viewport = planScroll.current;
+    const left = 310 + index * 104;
+    if (left < viewport.scrollLeft + 310 || left + 104 > viewport.scrollLeft + viewport.clientWidth) {
+      viewport.scrollLeft = Math.max(0, left - Math.max(320, viewport.clientWidth / 2));
+    }
+  }, [selectedWeek, origin, weeksCount, weekCell, recordScope]);
   const projects = [...data.projects].sort((a, b) => a.order - b.order);
   const deliveries = data.deliveries;
   const blocks = data.weekBlocks;
   const events = data.planEvents;
+  const assignments = data.weeklyAssignments;
   const people = data.actors.filter(a => a.type === 'person');
   const isDraft = !!selection && draft?.kind === selection.kind && draft.item.id === selection.id;
   const selected = isDraft ? draft!.item : selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
@@ -111,6 +131,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       if (!item) return;
       if (kind === 'delivery' && typeof values.projectId === 'string' && values.projectId !== item.projectId) {
         next.data.weekBlocks.forEach(b => { if (b.deliveryId === id) { b.projectId = values.projectId as string; b.updatedAt = stamp(); } });
+        next.data.weeklyAssignments.forEach(a => { if (a.deliveryId === id) { a.projectId = values.projectId as string; a.updatedAt = stamp(); } });
       }
       if (kind === 'block' && typeof values.projectId === 'string' && values.projectId !== item.projectId && item.deliveryId) {
         if (next.data.deliveries.find(x => x.id === item.deliveryId)?.projectId !== values.projectId) values.deliveryId = undefined;
@@ -163,6 +184,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       const transfers = data.handovers.filter(x => x.fromActorId === selected.id || x.toActorId === selected.id);
       const assignedBlocks = data.weekBlocks.filter(x => x.personId === selected.id);
       const ownedDeliveries = data.deliveries.filter(x => x.ownerActorId === selected.id);
+      const weeklyTasks = assignments.filter(x => x.personId === selected.id);
       const relatedNames = Array.from(new Set(direct.map(x => {
         if (x.targetType === 'process') return data.processes.find(p => p.id === x.targetId)?.name;
         const processId = x.targetType === 'stage' ? data.stages.find(s => s.id === x.targetId)?.processId : data.checkpoints.find(c => c.id === x.targetId)?.processId;
@@ -170,7 +192,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       }).filter(Boolean))).join(', ');
       const others = people.filter(x => x.id !== selected.id);
       const answer = window.prompt(
-        `Удаление «${selected.name}» затронет: участия ${direct.length}, передачи ${transfers.length}, недельные блоки ${assignedBlocks.length}, поставки ${ownedDeliveries.length}.\nПроцессы: ${relatedNames || 'нет'}.\n\nЧтобы перепривязать связи, введите ID другого человека:\n${others.map(x => `${x.name}: ${x.id}`).join('\n') || 'Других людей нет'}\n\nЧтобы явно удалить связи и снять назначения, введите УДАЛИТЬ. Отмена сохранит данные.`,
+        `Удаление «${selected.name}» затронет: участия ${direct.length}, передачи ${transfers.length}, недельные блоки ${assignedBlocks.length}, недельные задачи ${weeklyTasks.length}, поставки ${ownedDeliveries.length}.\nПроцессы: ${relatedNames || 'нет'}.\n\nЧтобы перепривязать связи, введите ID другого человека:\n${others.map(x => `${x.name}: ${x.id}`).join('\n') || 'Других людей нет'}\n\nЧтобы явно удалить связи и снять назначения, введите УДАЛИТЬ. Отмена сохранит данные.`,
       );
       if (answer === null) return;
       if (answer.trim().toUpperCase() !== 'УДАЛИТЬ') {
@@ -180,8 +202,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       }
     }
     const refs = selection.kind === 'project' ? [
-      `${data.deliveries.filter(x => x.projectId === selected.id).length} поставок`, `${data.weekBlocks.filter(x => x.projectId === selected.id).length} блоков`,
-    ] : selection.kind === 'delivery' ? [`${data.weekBlocks.filter(x => x.deliveryId === selected.id).length} блоков`] : selection.kind === 'lane' ? [`${data.weekBlocks.filter(x => x.laneId === selected.id).length} блоков`] : [];
+      `${data.deliveries.filter(x => x.projectId === selected.id).length} поставок`, `${data.weekBlocks.filter(x => x.projectId === selected.id).length} блоков`, `${assignments.filter(x => x.projectId === selected.id).length} недельных задач`,
+    ] : selection.kind === 'delivery' ? [`${data.weekBlocks.filter(x => x.deliveryId === selected.id).length} блоков`, `${assignments.filter(x => x.deliveryId === selected.id).length} недельных задач`] : selection.kind === 'lane' ? [`${data.weekBlocks.filter(x => x.laneId === selected.id).length} блоков`] : [];
     const suffix = refs.length ? ` Связанные данные: ${refs.join(', ')}. Они тоже будут удалены или отвязаны.` : '';
     if (selection.kind !== 'person' && !window.confirm(`Удалить «${selected.name || selected.content || selected.text || selection.kind}»?${suffix}`)) return;
     commit(next => {
@@ -193,12 +215,14 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         const removedBlockIds = new Set(d.weekBlocks.filter(x => x.projectId === id).map(x => x.id));
         d.deliveries = d.deliveries.filter(x => x.projectId !== id);
         d.weekBlocks = d.weekBlocks.filter(x => x.projectId !== id);
+        d.weeklyAssignments = d.weeklyAssignments.filter(x => x.projectId !== id);
         d.planEvents = d.planEvents.map(x => x.projectId === id ? { ...x, projectId: undefined } : x);
         d.estimates = d.estimates.filter(x => x.targetType === 'delivery' ? !removedDeliveryIds.has(x.targetId) : !removedBlockIds.has(x.targetId));
         d.crossLinks = d.crossLinks.filter(x => x.sourceType === 'delivery' ? !removedDeliveryIds.has(x.sourceId) : !removedBlockIds.has(x.sourceId));
       }
       if (selection.kind === 'delivery') {
         d.weekBlocks = d.weekBlocks.map(x => x.deliveryId === id ? { ...x, deliveryId: undefined } : x);
+        d.weeklyAssignments = d.weeklyAssignments.map(x => x.deliveryId === id ? { ...x, deliveryId: null, updatedAt: stamp() } : x);
         d.estimates = d.estimates.filter(x => !(x.targetType === 'delivery' && x.targetId === id));
         d.crossLinks = d.crossLinks.filter(x => !(x.sourceType === 'delivery' && x.sourceId === id));
       }
@@ -214,6 +238,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       }
       if (selection.kind === 'person') {
         d.weekBlocks = d.weekBlocks.map(x => x.personId === id ? { ...x, personId: replacementPersonId, updatedAt: stamp() } : x);
+        d.weeklyAssignments = d.weeklyAssignments.map(x => x.personId === id ? { ...x, personId: replacementPersonId || null, updatedAt: stamp() } : x);
         d.deliveries = d.deliveries.map(x => x.ownerActorId === id ? { ...x, ownerActorId: replacementPersonId, updatedAt: stamp() } : x);
         d.planEvents = d.planEvents.map(x => x.actorId === id ? { ...x, actorId: replacementPersonId, updatedAt: stamp() } : x);
         d.participations = replacementPersonId ? d.participations.map(x => x.actorId === id ? { ...x, actorId: replacementPersonId, updatedAt: stamp() } : x) : d.participations.filter(x => x.actorId !== id);
@@ -223,46 +248,79 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     setSelection(null);
   }
   function toggle(id: string) { setCollapsed(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
-  function choose(kind: EntityKind, id: string) { setDraft(null); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
+  function choose(kind: EntityKind, id: string) { setDraft(null); setWeekCell(null); setRecordScope(null); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
   function fitsFilter(text: string) { return !filters.search || text.toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()); }
   const filteredBlocks = blocks.filter(b =>
     (!filters.project || b.projectId === filters.project) && (!filters.delivery || b.deliveryId === filters.delivery) &&
     (!filters.lane || b.laneId === filters.lane) && (!filters.person || b.personId === filters.person) &&
     (!filters.status || b.status === filters.status) && fitsFilter([b.content, b.note, nameFor(snapshot, 'project', b.projectId), nameFor(snapshot, 'delivery', b.deliveryId)].join(' '))
   );
+  const filteredAssignments = assignments.filter(a =>
+    (!filters.project || a.projectId === filters.project) && (!filters.delivery || a.deliveryId === filters.delivery) &&
+    (!filters.person || a.personId === filters.person) && !filters.lane && !filters.status &&
+    fitsFilter([a.title, a.note, nameFor(snapshot, 'project', a.projectId), a.deliveryId ? nameFor(snapshot, 'delivery', a.deliveryId) : '', a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено'].join(' '))
+  );
   const visibleDeliveries = deliveries.filter(d => {
     if ((filters.project && filters.project !== d.projectId) || (filters.delivery && filters.delivery !== d.id)) return false;
     const hasMatchingBlock = filteredBlocks.some(b => b.deliveryId === d.id);
-    if (filters.lane || filters.person) return hasMatchingBlock;
+    const hasMatchingAssignment = filteredAssignments.some(a => a.deliveryId === d.id);
+    if (filters.lane || filters.person) return hasMatchingBlock || hasMatchingAssignment;
     const matchesDelivery = fitsFilter([d.name, d.kind, nameFor(snapshot, 'project', d.projectId)].join(' ')) && (!filters.status || filters.status === d.status);
-    return matchesDelivery || hasMatchingBlock;
+    return matchesDelivery || hasMatchingBlock || hasMatchingAssignment;
   });
   const visibleProjects = projects.filter(p => {
     if (filters.project && filters.project !== p.id) return false;
     const hasMatchingDelivery = visibleDeliveries.some(d => d.projectId === p.id);
     const hasStandaloneBlock = filteredBlocks.some(b => b.projectId === p.id && !b.deliveryId);
-    if (filters.delivery || filters.lane || filters.person) return hasMatchingDelivery || hasStandaloneBlock;
+    const hasMatchingAssignment = filteredAssignments.some(a => a.projectId === p.id);
+    if (filters.delivery || filters.lane || filters.person) return hasMatchingDelivery || hasStandaloneBlock || hasMatchingAssignment;
     if (!filters.search && !filters.status) return true;
-    return hasMatchingDelivery || hasStandaloneBlock || (fitsFilter([p.name, p.type].join(' ')) && (!filters.status || p.status === filters.status));
+    return hasMatchingDelivery || hasStandaloneBlock || hasMatchingAssignment || (fitsFilter([p.name, p.type].join(' ')) && (!filters.status || p.status === filters.status));
   });
   const visibleEvents = events.filter(e => !filters.delivery && !filters.lane && !filters.status &&
     (!filters.project || e.projectId === filters.project) && (!filters.person || e.actorId === filters.person) && fitsFilter(e.text));
   const undated = visibleDeliveries.filter(d => d.deadline.kind === 'unknown' && d.checkpointDate.kind === 'unknown');
   const statusOptions = Array.from(new Set([...projects.map(x => x.status), ...deliveries.map(x => x.status), ...blocks.map(x => x.status)])).filter(Boolean);
+  const weekAssignments = selectedWeek ? filteredAssignments.filter(a => a.weekStart === selectedWeek && visibleProjects.some(p => p.id === a.projectId)) : [];
+  const summaryPeople = [...people.filter(p => weekAssignments.some(a => a.personId === p.id)), ...weekAssignments.some(a => !a.personId) ? [{ id: '', name: 'Не назначено', color: '#8995a7' }] : []];
+  const summaryProjects = visibleProjects.filter(p => weekAssignments.some(a => a.projectId === p.id));
+  const sum = (items: WeeklyAssignment[]) => items.reduce((total, a) => total + a.count, 0);
+  const panelRecords = weekCell ? assignments.filter(a => a.projectId === weekCell.projectId && (a.deliveryId || null) === weekCell.deliveryId && a.weekStart === weekCell.weekStart) : recordScope && selectedWeek ? filteredAssignments.filter(a => a.weekStart === selectedWeek && (recordScope.personId === undefined || (a.personId || null) === recordScope.personId) && (!recordScope.projectId || a.projectId === recordScope.projectId)) : [];
+  function saveAssignment(values: TaskValues, id?: string) {
+    const saved = commit(next => {
+      if (id) {
+        const target = next.data.weeklyAssignments.find(a => a.id === id);
+        if (target) Object.assign(target, values, { updatedAt: stamp() });
+      } else next.data.weeklyAssignments.push({ ...createBase(), ...values });
+    });
+    if (saved) setMessage('Недельная задача сохранена.');
+    return saved;
+  }
+  function saveBulk(values: TaskValues[]) {
+    const saved = commit(next => { for (const item of values) next.data.weeklyAssignments.push({ ...createBase(), ...item }); });
+    if (saved) setMessage(`Добавлено задач: ${values.length}.`);
+    return saved;
+  }
+  function assignmentCells(projectId: string, deliveryId: string | null) {
+    return weeks.map(w => {
+      const items = filteredAssignments.filter(a => a.projectId === projectId && (a.deliveryId || null) === deliveryId && a.weekStart === w);
+      const names = [...new Set(items.map(a => a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено'))];
+      const count = sum(items);
+      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${names.join(', ')} · ${count} задач; открыть список` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setWeekCell({ projectId, deliveryId, weekStart: w }); setRecordScope(null); setSelectedWeek(w); }}>
+        {items.length ? <span className="weekly-cell-content" style={{ borderColor: people.find(p => p.id === items[0].personId)?.color || '#8995a7' }}><b>{names[0]} · {count}</b><small>{items[0].title}{items[0].count > 1 ? ` ×${items[0].count}` : ''}</small>{items.length > 1 && <small>+ ещё {items.length - 1}</small>}</span> : <span className="weekly-cell-plus">+</span>}
+      </button>;
+    });
+  }
+
 
   function row(kind: EntityKind, id: string, label: string, detail: string, depth: number, bars: ReactNode, expandable = false) {
-    return <div className={`plan-row ${selection?.id === id ? 'is-selected' : ''}`} key={`${kind}-${id}`}>
+    return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''}`} key={`${kind}-${id}`}>
       <div className="plan-row-label" style={{ paddingLeft: 14 + depth * 18 }}>
         {expandable ? <button className="plan-collapse" onClick={() => toggle(id)} aria-label={collapsed.has(id) ? 'Развернуть' : 'Свернуть'}>{collapsed.has(id) ? '▸' : '▾'}</button> : <span className="plan-collapse-spacer" />}
         <button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button>
         <span className="plan-row-detail" title={detail}>{detail}</span>
       </div>
-      <div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties} onClick={(e) => {
-        if (kind !== 'project' && kind !== 'delivery') return;
-        const bounds = e.currentTarget.getBoundingClientRect();
-        const i = Math.min(weeksCount - 1, Math.max(0, Math.floor((e.clientX - bounds.left) / bounds.width * weeksCount)));
-        add('block', { projectId: kind === 'project' ? id : data.deliveries.find(x => x.id === id)?.projectId, deliveryId: kind === 'delivery' ? id : undefined, laneId: data.lanes[0]?.id, startWeek: weeks[i], endWeek: weeks[i] });
-      }}>{bars}</div>
+      <div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties} onClick={undefined}>{bars}{kind === 'project' ? assignmentCells(id, null) : kind === 'delivery' ? assignmentCells(data.deliveries.find(x => x.id === id)?.projectId || '', id) : null}</div>
     </div>;
   }
   function bar(start: string, end: string, label: string, kind: EntityKind, id: string, className = '', title = '') {
@@ -283,6 +341,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       const ExcelJS = (await import('exceljs')).default;
       const useCurrent = scope === 'current';
       const pickedBlocks = useCurrent ? filteredBlocks.filter(b => weeks.some(w => w >= b.startWeek && w <= b.endWeek)) : blocks;
+      const pickedAssignments = useCurrent ? filteredAssignments.filter(a => weeks.includes(a.weekStart)) : assignments;
       const pickedEvents = useCurrent ? visibleEvents.filter(e => weeks.some(w => w >= e.startWeek && w <= (e.endWeek || e.startWeek))) : events;
       const untilExclusive = addWeeks(origin, weeksCount);
       const pickedDeliveries = useCurrent ? visibleDeliveries.filter(d => {
@@ -321,7 +380,17 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       weekly.columns = [24, 25, 23, 22, 18, 18, 38, 18, 34, 18].map(width => ({ width }));
       for (const b of pickedBlocks) weekly.addRow([nameFor(snapshot, 'project', b.projectId), b.deliveryId ? nameFor(snapshot, 'delivery', b.deliveryId) : '', nameFor(snapshot, 'lane', b.laneId), b.personId ? nameFor(snapshot, 'person', b.personId) : 'Не назначено', dateForExcel(b.startWeek), dateForExcel(b.endWeek), b.content, b.status, b.note, '']);
       for (const e of pickedEvents) weekly.addRow([e.projectId ? nameFor(snapshot, 'project', e.projectId) : '', '', '', e.actorId ? nameFor(snapshot, 'person', e.actorId) : '', dateForExcel(e.startWeek), dateForExcel(e.endWeek || e.startWeek), e.text, '', '', e.type]);
-      for (const sheet of [objects, weekly]) {
+      const tasks = workbook.addWorksheet('Недельные задачи', { views: [{ state: 'frozen', ySplit: 3 }] });
+      tasks.addRow([meta]); tasks.addRow([]);
+      tasks.addRow(['Неделя', 'Человек', 'Проект', 'Поставка', 'Задача или пакет', 'Количество', 'Заметка']);
+      tasks.columns = [18, 24, 27, 27, 42, 16, 40].map(width => ({ width }));
+      for (const a of pickedAssignments) tasks.addRow([dateForExcel(a.weekStart), a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено', nameFor(snapshot, 'project', a.projectId), a.deliveryId ? nameFor(snapshot, 'delivery', a.deliveryId) : '', a.title, a.count, a.note]);
+      tasks.addRow([]); tasks.addRow(['Итоги по человеку']);
+      for (const id of [...new Set(pickedAssignments.map(a => a.personId || ''))]) tasks.addRow(['', id ? nameFor(snapshot, 'person', id) : 'Не назначено', '', '', '', pickedAssignments.filter(a => (a.personId || '') === id).reduce((n, a) => n + a.count, 0)]);
+      tasks.addRow([]); tasks.addRow(['Итоги по проекту']);
+      for (const id of [...new Set(pickedAssignments.map(a => a.projectId))]) tasks.addRow(['', '', nameFor(snapshot, 'project', id), '', '', pickedAssignments.filter(a => a.projectId === id).reduce((n, a) => n + a.count, 0)]);
+      tasks.addRow(['Всего', '', '', '', '', pickedAssignments.reduce((n, a) => n + a.count, 0)]);
+      for (const sheet of [objects, weekly, tasks]) {
         const header = sheet.getRow(3); header.font = { bold: true, color: { argb: 'FFFFFFFF' } }; header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; header.height = 27;
         sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(3, sheet.rowCount), column: sheet.columnCount } };
         sheet.eachRow((r, number) => { if (number > 3) { r.alignment = { vertical: 'top', wrapText: true }; r.height = 31; r.eachCell(c => { if (c.value instanceof Date) c.numFmt = 'dd.mm.yyyy'; }); } });
@@ -365,7 +434,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       <label>С недели <input type="date" value={origin} onChange={e => e.target.value && setOrigin(validWeek(e.target.value))} /></label>
       <label>Период <select value={weeksCount} onChange={e => setWeeksCount(Number(e.target.value))}><option value={8}>8 недель</option><option value={16}>16 недель</option><option value={24}>24 недели</option><option value={32}>32 недели</option></select></label>
       <button onClick={() => {
-        const known = [...blocks.map(x => x.startWeek), ...deliveries.flatMap(x => x.deadline.kind === 'exact' ? [x.deadline.date] : x.deadline.kind === 'range' ? [x.deadline.start] : [])];
+        const known = [...blocks.map(x => x.startWeek), ...assignments.map(x => x.weekStart), ...deliveries.flatMap(x => x.deadline.kind === 'exact' ? [x.deadline.date] : x.deadline.kind === 'range' ? [x.deadline.start] : [])];
         if (!known.length) return;
         const min = known.sort()[0], max = known.sort().at(-1)!;
         setOrigin(addWeeks(validWeek(min), -1)); setWeeksCount([8, 16, 24, 32].find(n => weekIndex(validWeek(max), addWeeks(validWeek(min), -1)) < n) || 32);
@@ -375,10 +444,10 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     {message && <div className="plan-message" role="status">{message}<button onClick={() => setMessage('')}>×</button></div>}
     <div className="plan-content">
       <div className="plan-main">
-        <div className="plan-scroll">
+        <div className="plan-scroll" ref={planScroll}>
           <div className="plan-grid">
-            <div className="plan-grid-head"><div className="plan-head-label">Объекты плана</div><div className="plan-head-weeks" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map(w => <div key={w} className={w === todayWeek() ? 'current-week' : ''}><strong>{w.slice(8)}.{w.slice(5, 7)}</strong><small>{w.slice(0, 4)}</small></div>)}</div></div>
-            {!projects.length && <div className="plan-empty">План пока пуст. Создайте проект, затем поставку, дорожку и недельные блоки.</div>}
+            <div className="plan-grid-head"><div className="plan-head-label">Объекты плана</div><div className="plan-head-weeks" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map(w => <button key={w} className={`${w === todayWeek() ? 'current-week' : ''} ${selectedWeek === w ? 'is-selected-week' : ''}`} onClick={() => { setSelectedWeek(w); setWeekCell(null); setRecordScope(null); }} aria-label={`Итоги недели с ${humanDate(w)}`}><strong>{w.slice(8)}.{w.slice(5, 7)}</strong><small>{w.slice(0, 4)}</small></button>)}</div></div>
+            {!projects.length && <div className="plan-empty">План пока пуст. Создайте проект, затем добавьте поставку и недельные задачи.</div>}
             {visibleProjects.map(p => <div key={p.id}>
               {row('project', p.id, p.name, `${p.type} · ${p.status}`, 0, null, true)}
               {!collapsed.has(p.id) && <>
@@ -407,11 +476,13 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
             {visibleEvents.map(e => row('event', e.id, e.type, e.text, 0, bar(e.startWeek, e.endWeek || e.startWeek, e.text, 'event', e.id, 'is-event')))}
           </div>
         </div>
+        {selectedWeek && <section className="weekly-summary"><div className="weekly-summary-head"><div><strong>Неделя {humanDate(selectedWeek)} – {humanDate(iso(new Date(date(addWeeks(selectedWeek, 1)).getTime() - DAY)))}</strong><small>Задачи по текущим фильтрам · без учёта многонедельных блоков</small></div><button onClick={() => { setSelectedWeek(null); setWeekCell(null); setRecordScope(null); }}>Скрыть итоги</button></div><div className="weekly-summary-scroll"><table><thead><tr><th>Человек</th>{summaryProjects.map(p => <th key={p.id}>{p.name}</th>)}<th>Всего</th></tr></thead><tbody>{summaryPeople.map(person => <tr key={person.id}><th><span className="weekly-person-dot" style={{ background: person.color || '#8995a7' }} />{person.name}</th>{summaryProjects.map(p => { const amount = sum(weekAssignments.filter(a => (a.personId || '') === person.id && a.projectId === p.id)); return <td key={p.id}>{amount ? <button onClick={() => { setRecordScope({ personId: person.id || null, projectId: p.id }); setWeekCell(null); }}>{amount}</button> : '—'}</td>; })}<td><button onClick={() => { setRecordScope({ personId: person.id || null }); setWeekCell(null); }}>{sum(weekAssignments.filter(a => (a.personId || '') === person.id))}</button></td></tr>)}<tr className="weekly-summary-total"><th>Итого по проекту</th>{summaryProjects.map(p => <td key={p.id}><button onClick={() => { setRecordScope({ projectId: p.id }); setWeekCell(null); }}>{sum(weekAssignments.filter(a => a.projectId === p.id))}</button></td>)}<td><button onClick={() => { setRecordScope({}); setWeekCell(null); }}>{sum(weekAssignments)}</button></td></tr></tbody></table></div></section>}
         {showUndated && undated.length > 0 && <div className="plan-undated"><div><strong>Без срока</strong><button onClick={() => setShowUndated(false)}>Скрыть</button></div>{undated.map(d => <button key={d.id} onClick={() => choose('delivery', d.id)}>{nameFor(snapshot, 'project', d.projectId)} · {d.name}</button>)}</div>}
         {!showUndated && undated.length > 0 && <button className="plan-show-undated" onClick={() => setShowUndated(true)}>Показать без срока ({undated.length})</button>}
         <div className="plan-legend"><span><i className="legend-work" /> Рабочий блок</span><span><i className="legend-unassigned" /> Не назначено</span><span><i className="legend-estimate" /> Приблизительный срок</span><span><i className="legend-event" /> Событие</span></div>
       </div>
-      {selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Инспектор'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>×</button></div>
+      {(weekCell || recordScope) && <WeeklyTasksPanel key={weekCell ? `${weekCell.projectId}-${weekCell.deliveryId}-${weekCell.weekStart}` : `summary-${selectedWeek}-${recordScope?.personId}-${recordScope?.projectId}`} snapshot={snapshot} context={weekCell} title={weekCell ? `${nameFor(snapshot, 'project', weekCell.projectId)}${weekCell.deliveryId ? ` / ${nameFor(snapshot, 'delivery', weekCell.deliveryId)}` : ''} · ${humanDate(weekCell.weekStart)}` : `Задачи недели ${humanDate(selectedWeek || '')}`} records={panelRecords} onSave={saveAssignment} onSaveBulk={saveBulk} onDelete={id => { if (window.confirm('Удалить недельную задачу?')) commit(next => { next.data.weeklyAssignments = next.data.weeklyAssignments.filter(a => a.id !== id); }); }} onClose={() => { setWeekCell(null); setRecordScope(null); }} />}
+      {!weekCell && !recordScope && selection && selected && <aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Инспектор'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть инспектор" onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>×</button></div>
         <Inspector snapshot={snapshot} kind={selection.kind} item={selected} isDraft={isDraft} fieldError={fieldError} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} onWeekNormalized={value => setMessage(`Дата ${humanDate(value)} приведена к понедельнику ${humanDate(validWeek(value))}.`)} />
         <div className="plan-inspector-foot">{isDraft ? <><button className="plan-primary" onClick={saveDraft}>Сохранить</button><button onClick={() => { setDraft(null); setSelection(null); setMessage(''); }}>Отмена</button></> : <><span className="plan-save-indicator">Сохраняется автоматически</span><button className="danger" onClick={removeSelected}>Удалить</button></>}</div>
       </aside>}

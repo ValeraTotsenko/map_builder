@@ -20,7 +20,7 @@ function downloadBlob(name: string, value: Blob) {
 
 const summaryLabels: Record<string, string> = {
   groups: 'Группы', processes: 'Процессы', actors: 'Участники',
-  projects: 'Проекты', deliveries: 'Поставки', weekBlocks: 'Недельные блоки',
+  projects: 'Проекты', deliveries: 'Поставки', weekBlocks: 'Недельные блоки', weeklyAssignments: 'Недельные задачи',
   canvasZones: 'Зоны схемы', canvasNodes: 'Карточки схемы', canvasEdges: 'Связи схемы',
 };
 

@@ -5,7 +5,7 @@
  */
 
 export const BACKUP_FORMAT = 'process-planner-workspace' as const
-export const SCHEMA_VERSION = 2 as const
+export const SCHEMA_VERSION = 3 as const
 
 export type EntityBase = {
   id: string
@@ -146,6 +146,16 @@ export type WeekBlock = EntityBase & {
   note: string
 }
 
+export type WeeklyAssignment = EntityBase & {
+  weekStart: string
+  projectId: string
+  deliveryId?: string | null
+  personId: string | null
+  title: string
+  count: number
+  note: string
+}
+
 export type PlanEvent = EntityBase & {
   type: string
   startWeek: string
@@ -217,6 +227,7 @@ export type WorkspaceData = {
   deliveries: Delivery[]
   lanes: Lane[]
   weekBlocks: WeekBlock[]
+  weeklyAssignments: WeeklyAssignment[]
   planEvents: PlanEvent[]
   estimates: Estimate[]
   crossLinks: CrossLink[]
@@ -237,6 +248,7 @@ export type SnapshotSummary = {
   projects: number
   deliveries: number
   weekBlocks: number
+  weeklyAssignments: number
   canvasZones: number
   canvasNodes: number
   canvasEdges: number
@@ -267,7 +279,7 @@ export function createEmptySnapshot(name = 'Рабочее пространст�
       canvas: createEmptyCanvas(now), canvasZones: [], canvasNodes: [], canvasEdges: [],
       groups: [], processes: [], stages: [], checkpoints: [],
       sharedMilestones: [], dependencies: [], actors: [], participations: [],
-      handovers: [], projects: [], deliveries: [], lanes: [], weekBlocks: [],
+      handovers: [], projects: [], deliveries: [], lanes: [], weekBlocks: [], weeklyAssignments: [],
       planEvents: [], estimates: [], crossLinks: [],
     },
   }
@@ -286,6 +298,7 @@ export function getSnapshotSummary(snapshot: Snapshot): SnapshotSummary {
     projects: snapshot.data.projects.length,
     deliveries: snapshot.data.deliveries.length,
     weekBlocks: snapshot.data.weekBlocks.length,
+    weeklyAssignments: snapshot.data.weeklyAssignments.length,
     canvasZones: snapshot.data.canvasZones.length,
     canvasNodes: snapshot.data.canvasNodes.length,
     canvasEdges: snapshot.data.canvasEdges.length,

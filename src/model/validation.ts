@@ -87,7 +87,7 @@ function ref(id: unknown, path: string, ids: Set<string>, nullable = false): voi
 }
 
 /** Throws a user-readable error for malformed, incompatible or dangling data. */
-function validateSnapshotShape(value: unknown, legacy = false): void {
+function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = false): void {
   const root = object(value, 'snapshot')
   const workspace = object(root.workspace, 'workspace')
   const data = object(root.data, 'data')
@@ -174,6 +174,16 @@ function validateSnapshotShape(value: unknown, legacy = false): void {
     monday(v.startWeek, `${p}.startWeek`); monday(v.endWeek, `${p}.endWeek`)
     if ((v.startWeek as string) > (v.endWeek as string)) fail(p, 'первая неделя позже последней')
     string(v.content, `${p}.content`); string(v.status, `${p}.status`); string(v.note, `${p}.note`, false)
+  })
+  const weeklyAssignments = legacyWeekly ? [] : collection(data, 'weeklyAssignments', ids, (v, p) => {
+    monday(v.weekStart, `${p}.weekStart`)
+    string(v.projectId, `${p}.projectId`); optionalString(v.deliveryId, `${p}.deliveryId`)
+    if (v.personId !== null) string(v.personId, `${p}.personId`)
+    string(v.title, `${p}.title`)
+    if ((v.title as string).length > 200) fail(`${p}.title`, 'не более 200 символов')
+    number(v.count, `${p}.count`)
+    if (!Number.isSafeInteger(v.count) || (v.count as number) < 1 || (v.count as number) > 100000) fail(`${p}.count`, 'нужно целое число от 1 до 100000')
+    string(v.note, `${p}.note`, false)
   })
   const planEvents = collection(data, 'planEvents', ids, (v, p) => {
     string(v.type, `${p}.type`); monday(v.startWeek, `${p}.startWeek`)
@@ -282,6 +292,13 @@ function validateSnapshotShape(value: unknown, legacy = false): void {
     ref(v.personId, `data.weekBlocks[${i}].personId`, sets.actor, true)
     if (v.personId && actors.find(a => a.id === v.personId)?.type !== 'person') fail(`data.weekBlocks[${i}].personId`, 'назначение должно ссылаться на человека')
   })
+  weeklyAssignments.forEach((v, i) => {
+    ref(v.projectId, `data.weeklyAssignments[${i}].projectId`, sets.project)
+    ref(v.deliveryId, `data.weeklyAssignments[${i}].deliveryId`, sets.delivery, true)
+    if (v.deliveryId && deliveries.find(d => d.id === v.deliveryId)?.projectId !== v.projectId) fail(`data.weeklyAssignments[${i}].deliveryId`, 'поставка относится к другому проекту')
+    ref(v.personId, `data.weeklyAssignments[${i}].personId`, sets.actor, true)
+    if (v.personId && actors.find(a => a.id === v.personId)?.type !== 'person') fail(`data.weeklyAssignments[${i}].personId`, 'назначение должно ссылаться на человека')
+  })
   planEvents.forEach((v, i) => {
     ref(v.projectId, `data.planEvents[${i}].projectId`, sets.project, true)
     ref(v.actorId, `data.planEvents[${i}].actorId`, sets.actor, true)
@@ -313,5 +330,10 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
 
 /** Validates the original workspace before adding an empty canvas. */
 export function validateLegacySnapshot(value: unknown): void {
-  validateSnapshotShape(value, true)
+  validateSnapshotShape(value, true, true)
+}
+
+/** Validates a version 2 workspace before adding weekly assignments. */
+export function validateV2Snapshot(value: unknown): void {
+  validateSnapshotShape(value, false, true)
 }
