@@ -181,8 +181,10 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
     if (v.personId !== null) string(v.personId, `${p}.personId`)
     string(v.title, `${p}.title`)
     if ((v.title as string).length > 200) fail(`${p}.title`, 'не более 200 символов')
-    number(v.count, `${p}.count`)
-    if (!Number.isSafeInteger(v.count) || (v.count as number) < 1 || (v.count as number) > 100000) fail(`${p}.count`, 'нужно целое число от 1 до 100000')
+    if (v.count !== null) {
+      number(v.count, `${p}.count`)
+      if (!Number.isSafeInteger(v.count) || (v.count as number) < 1 || (v.count as number) > 100000) fail(`${p}.count`, 'нужно целое число от 1 до 100000 или пустое значение')
+    }
     string(v.note, `${p}.note`, false)
   })
   const planEvents = collection(data, 'planEvents', ids, (v, p) => {

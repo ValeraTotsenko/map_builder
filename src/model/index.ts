@@ -152,7 +152,7 @@ export type WeeklyAssignment = EntityBase & {
   deliveryId?: string | null
   personId: string | null
   title: string
-  count: number
+  count: number | null
   note: string
 }
 

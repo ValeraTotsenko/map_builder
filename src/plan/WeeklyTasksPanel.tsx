@@ -63,7 +63,7 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
   }
   function save() {
     if (!draft?.title.trim()) { setError('Введите название задачи.'); return; }
-    if (!Number.isSafeInteger(draft.count) || draft.count < 1 || draft.count > 100000) { setError('Количество должно быть целым числом от 1 до 100000.'); return; }
+    if (draft.count !== null && (!Number.isSafeInteger(draft.count) || draft.count < 1 || draft.count > 100000)) { setError('Количество должно быть целым числом от 1 до 100000 или пустым.'); return; }
     if (onSave({ ...draft, title: draft.title.trim(), weekStart: monday(draft.weekStart) }, editingId)) {
       setDraft(null); setEditingId(undefined); setError('');
     }
@@ -82,7 +82,7 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
     <div className="weekly-panel-body">
       {records.length === 0 && <p className="weekly-muted">На этой неделе задач пока нет.</p>}
       {records.map(record => <div className="weekly-record" key={record.id}>
-        <div className="weekly-record-title"><span className="weekly-person-dot" style={{ background: people.find(item => item.id === record.personId)?.color || '#8995a7' }} />{record.title}{record.count > 1 && <b>×{record.count}</b>}</div>
+        <div className="weekly-record-title"><span className="weekly-person-dot" style={{ background: people.find(item => item.id === record.personId)?.color || '#8995a7' }} />{record.title}{record.count !== null && record.count > 1 && <b>×{record.count}</b>}{record.count === null && <b>Без количества</b>}</div>
         <div className="weekly-record-meta">{person(record.personId)} · {project(record.projectId)}{record.deliveryId && ` / ${delivery(record.deliveryId)}`} · {record.weekStart}</div>
         {record.note && <p>{record.note}</p>}
         <div className="weekly-record-actions"><button onClick={() => begin(record)}>Изменить</button><button onClick={() => { onSave({ title: record.title, projectId: record.projectId, deliveryId: record.deliveryId || null, personId: record.personId, weekStart: nextWeek(record.weekStart), count: record.count, note: record.note }); }}>Копировать на следующую неделю</button><button className="danger" onClick={() => onDelete(record.id)}>Удалить</button></div>
@@ -95,7 +95,8 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
         <label>Поставка<select value={draft.deliveryId || ''} onChange={e => setDraft({ ...draft, deliveryId: e.target.value || null })}><option value="">Без поставки</option>{snapshot.data.deliveries.filter(item => item.projectId === draft.projectId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Неделя с понедельника<input type="date" value={draft.weekStart} onChange={e => e.target.value && setDraft({ ...draft, weekStart: monday(e.target.value) })} /></label>
         <label>Ответственный<select value={draft.personId || ''} onChange={e => setDraft({ ...draft, personId: e.target.value || null })}><option value="">Не назначено</option>{people.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>Количество задач<input type="number" min="1" max="100000" step="1" value={draft.count} onChange={e => setDraft({ ...draft, count: Number(e.target.value) })} /></label>
+        <label>Количество задач (необязательно)<input type="number" min="1" max="100000" step="1" value={draft.count ?? ''} onChange={e => setDraft({ ...draft, count: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+        <small className="weekly-muted">Если количество пока неизвестно, оставьте поле пустым. Название и заметка останутся в расписании.</small>
         <label>Заметка<textarea rows={2} value={draft.note} onChange={e => setDraft({ ...draft, note: e.target.value })} /></label>
         {outside && <p className="weekly-warning">Неделя вне указанного срока поставки. Сохранение разрешено.</p>}
         {error && <p className="weekly-error">{error}</p>}

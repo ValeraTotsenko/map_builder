@@ -61,6 +61,7 @@
 .weekly-assignee{display:flex;align-items:center;gap:4px;min-width:0;width:100%;border-left:3px solid #8995a7;border-radius:4px;background:#fff;box-shadow:0 1px 3px #17212f1a;padding:4px 5px;text-align:left;font-size:10px;line-height:1.2}
 .weekly-assignee>span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .weekly-assignee>b{flex:none;font-size:11px;color:#173b75}
+.weekly-assignee>em{flex:none;font-size:9px;font-style:normal;color:#667587}
 .weekly-cell-content>small{padding-left:8px;text-align:left}
 
 .plan-modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;justify-content:center;align-items:flex-start;padding:5vh 16px 16px;background:#17212f80}

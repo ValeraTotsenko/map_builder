@@ -34,7 +34,7 @@ export default function PlanEntitiesDialog({ snapshot, active, onSelect, onOpen,
     return item.name;
   }
   function detail(item: (typeof list)[number]) {
-    if ('weekStart' in item) return `${item.weekStart} · ${person(item.personId)} · ${project(item.projectId)} · ${item.count} задач`;
+    if ('weekStart' in item) return `${item.weekStart} · ${person(item.personId)} · ${project(item.projectId)} · ${item.count === null ? 'без количества' : `${item.count} задач`}`;
     if ('startWeek' in item) return `${item.startWeek}${item.endWeek ? ` – ${item.endWeek}` : ''}${'projectId' in item && item.projectId ? ` · ${project(item.projectId)}` : ''}`;
     if ('projectId' in item) return `${project(item.projectId)}${'kind' in item ? ` · ${item.kind}` : ''}`;
     if ('type' in item) return item.type === 'person' ? 'Сотрудник' : item.type;
