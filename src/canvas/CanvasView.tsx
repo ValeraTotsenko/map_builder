@@ -54,7 +54,7 @@ function Zone({ data, selected }: NodeProps<Node<ZoneData>>) {
 }
 
 const nodeTypes = { card: Card, zone: Zone };
-const edgeTypes = { routed: createSmartEdge('smoothstep', { floating: true, nodePadding: 16, gridRatio: 8, hops: { borderRadius: 8 } }) };
+const edgeTypes = { routed: createSmartEdge('bezier', { floating: true, nodePadding: 24, gridRatio: 8 }) };
 const routingOptions = { routeOnlyWhenBlocked: false, routeWhileDragging: true, debounceMs: 30 };
 
 function buildFlowNodes(data: WorkspaceData, editingId: string | null, selectedIds: string[], onEdit: (id: string, name: string) => void, onFinish: () => void, onResize: ZoneData['onResize']): Node[] {
