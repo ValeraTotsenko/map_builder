@@ -25,3 +25,4 @@
 .canvas-card{box-sizing:border-box;height:auto}
 .canvas-card-heading{align-items:flex-start}
 .canvas-card .canvas-item-name{min-width:0;flex:1;overflow:visible;text-overflow:clip;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.35}
+.canvas-card-description{display:block;overflow:visible;-webkit-line-clamp:unset;-webkit-box-orient:initial;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.45}
