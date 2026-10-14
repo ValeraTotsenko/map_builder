@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { Actor, Checkpoint, DateReference, Dependency, Group, Handover, Participation, Process, SharedMilestone, Snapshot, Stage, WorkspaceData } from '../model'
 import { createId, unknownDate, validateDateOrder, validateDateReference, validateSnapshot } from '../model'
@@ -45,6 +45,21 @@ const isoWeekNumber = (start: string) => {
 const formatRef = (ref?: DateReference) => ref?.kind === 'exact' ? formatDate(ref.date) : ref?.kind === 'range' ? `${formatDate(ref.start)} — ${formatDate(ref.end)}` : ref?.text || 'Не запланировано'
 const safeStatus = (s?: string) => s || 'Не начато'
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toLocaleUpperCase('ru')).join('') || '•'
+const roundedPath = (points: [number, number][], radius = 8) => {
+  let path = `M ${points[0][0]} ${points[0][1]}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const previous = points[i - 1], corner = points[i], next = points[i + 1]
+    const beforeLength = Math.hypot(corner[0] - previous[0], corner[1] - previous[1])
+    const afterLength = Math.hypot(next[0] - corner[0], next[1] - corner[1])
+    if (!beforeLength || !afterLength) continue
+    const offset = Math.min(radius, beforeLength / 2, afterLength / 2)
+    const before: [number, number] = [corner[0] - (corner[0] - previous[0]) * offset / beforeLength, corner[1] - (corner[1] - previous[1]) * offset / beforeLength]
+    const after: [number, number] = [corner[0] + (next[0] - corner[0]) * offset / afterLength, corner[1] + (next[1] - corner[1]) * offset / afterLength]
+    path += ` L ${before[0]} ${before[1]} Q ${corner[0]} ${corner[1]} ${after[0]} ${after[1]}`
+  }
+  const last = points[points.length - 1]
+  return `${path} L ${last[0]} ${last[1]}`
+}
 
 function makeDraft(kind: Kind, data: WorkspaceData, context?: Selection): Draft {
   const common = base()
@@ -146,6 +161,17 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const [treeOpen, setTreeOpen] = useState(true)
   const [formError, setFormError] = useState<{ field: string; message: string } | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const [timelineWidth, setTimelineWidth] = useState(940)
+  useEffect(() => {
+    const element = timelineRef.current
+    if (!element) return
+    const updateWidth = () => setTimelineWidth(element.clientWidth || 940)
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   const select = (kind: Kind, id: string) => {
     const item = (data[collection[kind]] as Array<{ id: string }>).find(x => x.id === id)
@@ -315,10 +341,23 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
   const linkPaths = selectedLinks.flatMap(link => {
     const from = rows.findIndex(r => r.id === link.sourceId), to = rows.findIndex(r => r.id === link.targetId)
     if (from < 0 || to < 0) return []
-    const start = span(rows[from])?.end, end = span(rows[to])?.start
-    const x1 = start ? pct(start) * 9.4 : 16, x2 = end ? pct(end) * 9.4 : 36
-    const y1 = from * 54 + 27, y2 = to * 54 + 27
-    return [{ id: link.id, d: `M ${x1} ${y1} C ${Math.max(x1, x2) + 35} ${y1}, ${Math.min(x1, x2) - 35} ${y2}, ${x2} ${y2}`, type: link.type, conflict: conflicts.some(x => x.id === link.id) }]
+    const sourceEnd = span(rows[from])?.end, targetStart = span(rows[to])?.start
+    if (!sourceEnd || !targetStart) return []
+    const sourceTime = day(sourceEnd).getTime(), targetTime = day(targetStart).getTime()
+    if (sourceTime < domainStart || sourceTime >= domainEnd || targetTime < domainStart || targetTime >= domainEnd) return []
+    const xFor = (date: string) => pct(date) / 100 * timelineWidth
+    const sourceX = xFor(plusDays(sourceEnd, 1)), targetX = xFor(targetStart) + 10
+    const crossedRows = rows.slice(Math.min(from, to) + 1, Math.max(from, to))
+    const obstructionRight = crossedRows.map(row => {
+      const dates = span(row)
+      return dates?.end ? xFor(plusDays(dates.end, 1)) : dates?.start ? xFor(dates.start) + 12 : 0
+    })
+    const corridorX = Math.max(sourceX, ...obstructionRight) + 20
+    const downward = to > from
+    const sourceY = from * 54 + 27, laneY = to * 54 + (downward ? 6 : 48)
+    const targetY = to * 54 + (downward ? rows[to].kind === 'process' ? 13 : 15 : rows[to].kind === 'process' ? 41 : 39)
+    const d = roundedPath([[sourceX, sourceY], [corridorX, sourceY], [corridorX, laneY], [targetX, laneY], [targetX, targetY]])
+    return [{ id: link.id, d, type: link.type, conflict: conflicts.some(x => x.id === link.id) }]
   })
   const activeProcessId = selected?.kind === 'process' ? selected.id : selected?.kind === 'stage' ? data.stages.find(x => x.id === selected.id)?.processId : selected?.kind === 'checkpoint' ? data.checkpoints.find(x => x.id === selected.id)?.processId : undefined
   const relatedProcessIds = activeProcessId ? [activeProcessId, ...data.stages.filter(s => s.processId === activeProcessId).map(s => s.id), ...data.checkpoints.filter(c => c.processId === activeProcessId).map(c => c.id)] : []
@@ -408,7 +447,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
             <div className="pv-row-actions">{row.kind === 'group' && <button className="pv-mini" title="Добавить процесс" onClick={() => create('process', { kind: 'group', id: row.id })}>+</button>}{row.kind === 'process' && <button className="pv-mini" title="Добавить этап" onClick={() => create('stage', { kind: 'process', id: row.id })}>+</button>}{row.kind === 'stage' && <button className="pv-mini" title="Добавить контрольную точку" onClick={() => create('checkpoint', { kind: 'stage', id: row.id })}>+</button>}</div>
           </div>
         })}{!rows.length && <div className="pv-empty">Карта пока пуста. Создайте группу или процесс.</div>}</div>}
-        <div className="pv-time" style={{ '--pv-col-width': `${100 / columns.length}%`, '--pv-min-width': `${columns.length * (scale === 'week' ? 118 : 100)}px`, '--pv-column-count': columns.length } as CSSProperties}>
+        <div className="pv-time" ref={timelineRef} style={{ '--pv-col-width': `${100 / columns.length}%`, '--pv-min-width': `${columns.length * (scale === 'week' ? 118 : 100)}px`, '--pv-column-count': columns.length } as CSSProperties}>
           <div className="pv-head pv-time-head">{columns.map(c => <span key={c.start} title={`${formatDate(c.start)} — ${formatDate(plusDays(c.end, -1))}`}>{c.label}{c.detail && <small>{c.detail}</small>}</span>)}</div>
           {rows.map(row => { const dates = span(row); const isSelected = selected?.kind === row.kind && selected.id === row.id; const visible = dates?.start && dates?.end && day(dates.end).getTime() >= domainStart && day(dates.start).getTime() < domainEnd; const left = dates?.start ? pct(dates.start) : 0; const right = dates?.end ? pct(plusDays(dates.end, 1)) : left; const rowHandovers = data.handovers.filter(h => h.targetId === row.id && (showAllLinks || h.targetId === selected?.id || (selected?.kind === 'process' && relatedProcessIds.includes(h.targetId)))); return <div key={`${row.kind}-${row.id}`} className={`pv-row pv-time-row ${row.kind} ${isSelected ? 'selected' : ''} ${!highlighted(row) ? 'dimmed' : ''} ${rowHandovers.length ? 'has-handovers' : ''}`} onClick={() => row.id !== '_ungrouped' && select(row.kind === 'milestone' ? 'milestone' : row.kind, row.id)}>
             {!!rowHandovers.length && <div className="pv-handover-list" aria-label="Передачи результата">{rowHandovers.map(h => { const from = data.actors.find(a => a.id === h.fromActorId)?.name || '?'; const to = data.actors.find(a => a.id === h.toActorId)?.name || '?'; const arrowId = `pv-handover-arrow-${h.id}`; return <div className="pv-handover-flow" key={h.id} title={`${from} → ${to}: ${h.description}`}><span>{from}</span><svg width="27" height="12" viewBox="0 0 27 12" aria-hidden="true"><defs><marker id={arrowId} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#47648b" /></marker></defs><line x1="1" y1="6" x2="24" y2="6" stroke="#47648b" strokeWidth="1.7" markerEnd={`url(#${arrowId})`} /></svg><span>{to}</span><strong>{h.description}</strong></div> })}</div>}
@@ -416,7 +455,7 @@ export function ProcessView({ snapshot, onChange, onNavigateToPlan, initialSelec
             {(row.kind === 'checkpoint' || row.kind === 'milestone') && visible && <span className={`pv-marker ${row.kind}`} title={`${row.label}: ${formatDate(dates.start)}`} style={{ left: `${left}%` }} />}
             {row.kind !== 'group' && !visible && <span className="pv-unscheduled">{dates?.start || dates?.end ? 'Срок указан частично' : 'Не запланировано'}</span>}
           </div> })}
-          {!!linkPaths.length && <svg className="pv-link-overlay" viewBox={`0 0 940 ${rows.length * 54}`} preserveAspectRatio="none" style={{ height: rows.length * 54 }} aria-label="Связи между процессами и этапами"><defs><marker id="pv-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#556987" /></marker></defs>{linkPaths.map(l => <path key={l.id} d={l.d} className={`${l.type === 'influence' ? 'influence' : ''} ${l.conflict ? 'conflict' : ''}`} />)}</svg>}
+          {!!linkPaths.length && <svg className="pv-link-overlay" viewBox={`0 0 ${timelineWidth} ${rows.length * 54}`} preserveAspectRatio="none" style={{ height: rows.length * 54 }} aria-label="Связи между процессами и этапами"><defs><marker id="pv-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#556987" /></marker><marker id="pv-arrow-conflict" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#b45309" /></marker></defs>{linkPaths.map(l => <path key={l.id} d={l.d} className={`${l.type === 'influence' ? 'influence' : ''} ${l.conflict ? 'conflict' : ''}`} />)}</svg>}
           {!!conflicts.length && <span className="pv-links-note">⚠ Конфликт сроков предпосылок: {conflicts.length}</span>}
         </div>
       </div>

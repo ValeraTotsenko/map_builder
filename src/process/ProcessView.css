@@ -52,9 +52,9 @@
 .pv-unscheduled{margin-left:12px;color:#64748b;font-style:italic;font-size:11px}
 .pv-status{font-size:10px;color:#526074;background:#f1f4f8;padding:3px 5px;border-radius:4px;white-space:nowrap}
 .pv-link-overlay{position:absolute;left:0;top:52px;width:100%;pointer-events:none;z-index:2;overflow:visible}
-.pv-link-overlay path{fill:none;stroke:#556987;stroke-width:2;marker-end:url(#pv-arrow)}
-.pv-link-overlay path.influence{stroke-dasharray:5 4}
-.pv-link-overlay path.conflict{stroke:#b45309}
+.pv-link-overlay > path{fill:none;stroke:#556987;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;marker-end:url(#pv-arrow)}
+.pv-link-overlay > path.influence{stroke-dasharray:5 4}
+.pv-link-overlay > path.conflict{stroke:#b45309;marker-end:url(#pv-arrow-conflict)}
 .pv-links-note{position:absolute;right:14px;top:59px;z-index:3;background:#fff8e6;border:1px solid #efc675;padding:5px 8px;border-radius:6px;color:#85500b;font-size:11px}
 .pv-inspector{width:390px;flex:none;background:#fff;border-left:1px solid #e4e8ee;overflow:auto;padding:16px;box-sizing:border-box}
 .pv-inspector-header{display:flex;align-items:flex-start;gap:8px;margin-bottom:13px}.pv-inspector-header h2{font-size:17px;margin:1px 0 0;flex:1}
