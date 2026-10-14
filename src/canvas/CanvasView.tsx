@@ -38,7 +38,7 @@ function InlineName({ name, editing, onCommit, onFinish }: { name: string; editi
 
 function Card({ data, selected }: NodeProps<Node<CardData>>) {
   const { model } = data;
-  return <div className={`canvas-card canvas-card-${model.kind}${selected ? ' selected' : ''}`} style={{ width: model.width, height: model.height, '--item-color': model.color } as React.CSSProperties}>
+  return <div className={`canvas-card canvas-card-${model.kind}${selected ? ' selected' : ''}`} style={{ width: model.width, minHeight: model.height, '--item-color': model.color } as React.CSSProperties}>
     {model.kind !== 'note' && <><Handle type="target" position={Position.Left} className="canvas-handle"/><Handle type="source" position={Position.Right} className="canvas-handle"/></>}
     <div className="canvas-card-heading"><span className="canvas-card-icon" aria-hidden>{KIND_MARK[model.kind]}</span><InlineName name={model.name} editing={data.editing} onCommit={name => data.onEdit(model.id, name)} onFinish={data.onFinish}/></div>
     {model.description && <div className="canvas-card-description">{model.description}</div>}
@@ -66,7 +66,7 @@ function buildFlowNodes(data: WorkspaceData, editingId: string | null, selectedI
   });
   const cards: Node[] = data.canvasNodes.map(node => {
     const zone = data.canvasZones.find(item => item.id === node.zoneId);
-    return { id: node.id, type: 'card', parentId: zone?.id, position: { x: node.x - (zone?.x ?? 0), y: node.y - (zone?.y ?? 0) }, style: { width: node.width, height: node.height, zIndex: node.zIndex }, data: { model: node, editing: editingId === node.id, onEdit, onFinish }, draggable: true, selected: selectedIds.includes(node.id) };
+    return { id: node.id, type: 'card', parentId: zone?.id, position: { x: node.x - (zone?.x ?? 0), y: node.y - (zone?.y ?? 0) }, style: { width: node.width, minHeight: node.height, zIndex: node.zIndex }, data: { model: node, editing: editingId === node.id, onEdit, onFinish }, draggable: true, selected: selectedIds.includes(node.id) };
   });
   return [...zones, ...cards];
 }
@@ -252,6 +252,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
     const d = current.current; const stamp = NOW();
     const list = movedNodes?.length ? movedNodes : [moved];
     const movedById = new Map(list.map(item => [item.id, item]));
+    const measuredHeight = new Map(flowNodes.filter(item => item.type === 'card').map(item => [item.id, item.measured?.height]));
     const zones = d.canvasZones.map(zone => {
       const drag = movedById.get(zone.id);
       return drag ? { ...zone, x: drag.position.x, y: drag.position.y, updatedAt: stamp } : zone;
@@ -264,7 +265,7 @@ export function CanvasView({ snapshot, onChange }: { snapshot: Snapshot; onChang
       if (!drag && !movedZones.has(item.zoneId ?? '')) return item;
       const x = drag ? drag.position.x + (newParent?.x ?? 0) : item.x + (newParent?.x ?? 0) - (originalParent?.x ?? 0);
       const y = drag ? drag.position.y + (newParent?.y ?? 0) : item.y + (newParent?.y ?? 0) - (originalParent?.y ?? 0);
-      const zone = [...zones].reverse().find(candidate => x >= candidate.x + 12 && y >= candidate.y + 42 && x + item.width <= candidate.x + candidate.width - 12 && y + item.height <= candidate.y + candidate.height - 12);
+      const zone = [...zones].reverse().find(candidate => x >= candidate.x + 12 && y >= candidate.y + 42 && x + item.width <= candidate.x + candidate.width - 12 && y + (measuredHeight.get(item.id) ?? item.height) <= candidate.y + candidate.height - 12);
       return { ...item, x, y, zoneId: zone?.id ?? null, updatedAt: stamp };
     });
     if (zones.some((item, index) => item !== d.canvasZones[index]) || nodes.some((item, index) => item !== d.canvasNodes[index])) publish({ ...d, canvasZones: zones, canvasNodes: nodes });
