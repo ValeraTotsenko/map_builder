@@ -321,7 +321,6 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const statusOptions = Array.from(new Set([...projects.map(x => x.status), ...deliveries.map(x => x.status), ...blocks.map(x => x.status)])).filter(Boolean);
   const weekAssignments = selectedWeek ? filteredAssignments.filter(a => a.weekStart === selectedWeek && visibleProjects.some(p => p.id === a.projectId)) : [];
   const weekBlocks = selectedWeek ? filteredBlocks.filter(b => b.startWeek <= selectedWeek && b.endWeek >= selectedWeek && visibleProjects.some(p => p.id === b.projectId)) : [];
-  const sum = (items: WeeklyAssignment[]) => items.reduce((total, a) => total + (a.count ?? 0), 0);
   const panelRecords = weekCell ? assignments.filter(a => a.projectId === weekCell.projectId && (a.deliveryId || null) === weekCell.deliveryId && a.weekStart === weekCell.weekStart) : [];
   function saveAssignment(values: TaskValues, id?: string) {
     const saved = commit(next => {
@@ -341,23 +340,15 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   function assignmentsForCell(projectId: string, deliveryId: string | null, weekStart: string) {
     return filteredAssignments.filter(a => a.projectId === projectId && (a.deliveryId || null) === deliveryId && a.weekStart === weekStart);
   }
-  function assigneesForCell(items: WeeklyAssignment[]) {
-    return [...new Set(items.map(a => a.personId || ''))].map(id => ({
-      id,
-      name: id ? nameFor(snapshot, 'person', id) : 'Не назначено',
-      color: people.find(person => person.id === id)?.color || '#8995a7',
-      count: sum(items.filter(a => (a.personId || '') === id)),
-      unquantified: items.filter(a => (a.personId || '') === id && a.count === null).length,
-    }));
-  }
   function assignmentCells(projectId: string, deliveryId: string | null) {
     return weeks.map(w => {
       const items = assignmentsForCell(projectId, deliveryId, w);
-      const assignees = assigneesForCell(items);
-      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${assignees.map(a => `${a.name}: ${a.count} задач с количеством${a.unquantified ? `, ${a.unquantified} без количества` : ''}`).join('; ')}; открыть список` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell({ projectId, deliveryId, weekStart: w }); setSelectedWeek(w); }}>
+      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${items.map(a => `${nameFor(snapshot, 'person', a.personId)}: ${a.title}${a.count === null ? '' : ` ×${a.count}`}${a.note ? ` — ${a.note}` : ''}`).join('\n')}` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell({ projectId, deliveryId, weekStart: w }); setSelectedWeek(w); }}>
         {items.length ? <span className="weekly-cell-content">
-          {assignees.map(assignee => <span className="weekly-assignee" key={assignee.id} style={{ borderColor: assignee.color }} title={`${assignee.name}: ${assignee.count} задач с количеством${assignee.unquantified ? `, ${assignee.unquantified} без количества` : ''}`}><span>{assignee.name}</span><b>{assignee.count || '—'}</b>{assignee.unquantified > 0 && <em title="Записи без количества">+{assignee.unquantified} без кол.</em>}</span>)}
-          {assignees.length === 1 && <small title={items.map(a => a.title).join(', ')}>{items[0].title}{items[0].count !== null && items[0].count > 1 ? ` ×${items[0].count}` : ''}{items.length > 1 ? ` · + ещё ${items.length - 1}` : ''}</small>}
+          {items.map(item => <span className="weekly-task" key={item.id} style={{ borderColor: people.find(person => person.id === item.personId)?.color || '#8995a7' }}>
+            <span className="weekly-task-head"><span>{nameFor(snapshot, 'person', item.personId)}</span>{item.count !== null && <b>×{item.count}</b>}</span>
+            <span className="weekly-task-title">{item.title}</span>
+          </span>)}
         </span> : <span className="weekly-cell-plus">+</span>}
       </button>;
     });
@@ -366,8 +357,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   function row(kind: EntityKind, id: string, label: string, detail: string, depth: number, bars: ReactNode, expandable = false) {
     const projectId = kind === 'project' ? id : kind === 'delivery' ? data.deliveries.find(x => x.id === id)?.projectId || '' : '';
     const deliveryId = kind === 'delivery' ? id : null;
-    const maxAssignees = projectId ? Math.max(0, ...weeks.map(w => assigneesForCell(assignmentsForCell(projectId, deliveryId, w)).length)) : 0;
-    const rowHeight = Math.max(66, 18 + maxAssignees * 30 + (maxAssignees === 1 ? 14 : 0));
+    const maxTasks = projectId ? Math.max(0, ...weeks.map(w => assignmentsForCell(projectId, deliveryId, w).length)) : 0;
+    const rowHeight = Math.max(66, 8 + maxTasks * 54 + Math.max(0, maxTasks - 1) * 4);
     return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''}`} style={projectId ? { height: rowHeight } : undefined} key={`${kind}-${id}`}>
       <div className="plan-row-label" style={{ paddingLeft: 14 + depth * 18 }}>
         {expandable ? <button className="plan-collapse" onClick={() => toggle(id)} aria-label={collapsed.has(id) ? 'Развернуть' : 'Свернуть'}>{collapsed.has(id) ? '▸' : '▾'}</button> : <span className="plan-collapse-spacer" />}
