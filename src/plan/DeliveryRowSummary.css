@@ -1,0 +1,61 @@
+.plan-delivery-row-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 10px;
+}
+
+.plan-delivery-row-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 18px;
+}
+
+.plan-delivery-row-heading .plan-row-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.plan-delivery-row-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 3px;
+  min-width: 0;
+  color: #617087;
+  font-size: 9px;
+  line-height: 13px;
+  white-space: nowrap;
+}
+
+.plan-delivery-row-stats span {
+  min-width: 0;
+}
+
+.plan-delivery-row-stats b {
+  color: #24344c;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.plan-delivery-row-progress {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e7ebf1;
+}
+
+.plan-delivery-row-progress span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+}
+
+.plan-delivery-row-progress .is-scheduled { background: #a7c8f5; }
+.plan-delivery-row-progress .is-completed { background: #55b995; }

@@ -5,10 +5,12 @@ import WeeklyLoadDialog from './WeeklyLoadDialog';
 import PlanHelpDialog from './PlanHelpDialog';
 import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
 import DeliveryVolumeCard from './DeliveryVolumeCard';
+import { deliveryMetrics } from './deliveryMetrics';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
 import './weekly_style.css';
 import './PlanToolbar.css';
+import './DeliveryRowSummary.css';
 
 type EntityKind = 'project' | 'delivery' | 'lane' | 'block' | 'event' | 'person' | 'estimate' | 'link';
 type DateReference = { kind: 'unknown'; text?: string } | { kind: 'exact'; date: string; text?: string } | { kind: 'range'; start: string; end: string; text?: string };
@@ -372,15 +374,25 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   }
 
   function row(kind: EntityKind, id: string, label: string, detail: string, depth: number, bars: ReactNode, expandable = false) {
-    const projectId = kind === 'project' ? id : kind === 'delivery' ? data.deliveries.find(x => x.id === id)?.projectId || '' : '';
+    const delivery = kind === 'delivery' ? data.deliveries.find(x => x.id === id) : undefined;
+    const projectId = kind === 'project' ? id : delivery?.projectId || '';
     const deliveryId = kind === 'delivery' ? id : null;
+    const volume = delivery ? deliveryMetrics(delivery, assignments) : null;
+    const showVolume = volume && (volume.hasVolume || volume.scheduled > 0 || volume.unquantified > 0);
+    const volumeBase = volume ? (volume.hasVolume ? volume.total : volume.scheduled) : 0;
+    const volumePercent = (value: number) => volumeBase > 0 ? `${Math.min(100, value / volumeBase * 100)}%` : '0%';
     const maxTasks = projectId ? Math.max(0, ...weeks.map(w => assignmentsForCell(projectId, deliveryId, w).length)) : 0;
     const rowHeight = Math.max(66, 8 + maxTasks * 54 + Math.max(0, maxTasks - 1) * 4);
     return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''}`} style={projectId ? { height: rowHeight } : undefined} key={`${kind}-${id}`}>
       <div className="plan-row-label" style={{ paddingLeft: 14 + depth * 18 }}>
         {expandable ? <button className="plan-collapse" onClick={() => toggle(id)} aria-label={collapsed.has(id) ? 'Развернуть' : 'Свернуть'}>{collapsed.has(id) ? '▸' : '▾'}</button> : <span className="plan-collapse-spacer" />}
-        <button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button>
-        <span className="plan-row-detail" title={detail}>{detail}</span>
+        {showVolume && volume ? <div className="plan-delivery-row-content">
+          <div className="plan-delivery-row-heading"><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></div>
+          <div className="plan-delivery-row-stats" title={`В тестировании: ${volume.testing}; в разработке: ${volume.development}; всего: ${volume.hasVolume ? volume.total : 'не задано'}; распределено: ${volume.scheduled}; выполнено: ${volume.completed}${volume.unquantified ? `; без количества: ${volume.unquantified}, выполнено: ${volume.unquantifiedCompleted}` : ''}`}>
+            <span>Тест <b>{volume.testing}</b></span><span>Разр <b>{volume.development}</b></span><span>Всего <b>{volume.hasVolume ? volume.total : '—'}</b></span><span>План <b>{volume.scheduled}</b></span><span>Готово <b>{volume.completed}</b></span>
+          </div>
+          <div className="plan-delivery-row-progress" role="img" aria-label={`Распределено ${volume.scheduled} из ${volume.hasVolume ? volume.total : 'неуказанного объёма'}, выполнено ${volume.completed}`}><span className="is-scheduled" style={{ width: volumePercent(volume.scheduled) }} /><span className="is-completed" style={{ width: volumePercent(volume.completed) }} /></div>
+        </div> : <><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></>}
       </div>
       <div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties}>{bars}{projectId ? assignmentCells(projectId, deliveryId) : null}</div>
     </div>;
