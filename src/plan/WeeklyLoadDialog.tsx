@@ -71,11 +71,11 @@ export default function WeeklyLoadDialog({ snapshot, weekStart, weekNumber, reco
           ].sort((left, right) => projectName(left.projectId).localeCompare(projectName(right.projectId), 'ru') || left.title.localeCompare(right.title, 'ru'));
           return <section className="weekly-load-person" key={group.id || 'unassigned'}>
             <div className="weekly-load-person-head"><h3><span className="weekly-person-dot" style={{ background: group.color }} />{group.name}</h3><div><span>{entries.length} записей и блоков</span><span>{countTasks(assignments)} задач с количеством</span>{countUnquantified(assignments) + groupBlocks.length > 0 && <span>{countUnquantified(assignments) + groupBlocks.length} без количества</span>}</div></div>
-            <div className="weekly-load-table-scroll"><table><thead><tr><th>Проект / поставка</th><th>Задача</th><th>Количество</th><th>Комментарий</th><th><span className="visually-hidden">Действие</span></th></tr></thead><tbody>
+            <div className="weekly-load-table-scroll"><table><thead><tr><th>Проект / поставка</th><th>Задача</th><th>Количество / выполнение</th><th>Комментарий</th><th><span className="visually-hidden">Действие</span></th></tr></thead><tbody>
               {entries.map(entry => <tr key={`${entry.kind}-${entry.record.id}`}>
                 <td><strong>{projectName(entry.projectId)}</strong>{entry.deliveryId && <small>{deliveryName(entry.deliveryId)}</small>}</td>
                 <td><span className="weekly-load-kind">{entry.kind === 'block' ? 'Рабочий блок' : 'Недельная задача'}</span>{entry.title}{entry.kind === 'block' && <small>{formatDate(entry.record.startWeek)} – {formatDate(endOfWeek(entry.record.endWeek))}</small>}</td>
-                <td>{entry.count === null ? <span className="weekly-load-no-count">Без количества</span> : entry.count}</td>
+                <td>{entry.kind === 'assignment' ? entry.count === null ? <span className="weekly-load-no-count">{entry.record.completed ? '✓ Выполнено' : 'Без количества'}</span> : `${entry.record.completedCount ?? 0} / ${entry.count}` : <span className="weekly-load-no-count">Без количества</span>}</td>
                 <td className="weekly-load-note">{entry.note || <span className="weekly-load-muted">—</span>}</td>
                 <td><button onClick={() => entry.kind === 'assignment' ? onOpenAssignment(entry.record) : onOpenBlock(entry.record)}>Открыть</button></td>
               </tr>)}

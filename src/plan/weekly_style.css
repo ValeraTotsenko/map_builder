@@ -58,11 +58,18 @@
 .plan-row-track>.weekly-cell.has-tasks{z-index:3}
 
 .weekly-cell-content{gap:4px;max-height:100%;overflow:hidden;padding:4px;background:transparent;box-shadow:none;border:0;justify-content:flex-start}
-.weekly-task{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;width:100%;min-height:50px;flex:none;border-left:3px solid #8995a7;border-radius:4px;background:#fff;box-shadow:0 1px 3px #17212f1a;padding:4px 5px;text-align:left;font-size:10px;line-height:1.2}
+.weekly-task{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;width:100%;min-height:50px;flex:none;border-left:3px solid #8995a7;border-radius:4px;background:linear-gradient(to right,#d9f3e8 var(--task-progress,0%),#fff var(--task-progress,0%));box-shadow:0 1px 3px #17212f1a;padding:4px 5px;text-align:left;font-size:10px;line-height:1.2}
 .weekly-task-head{display:flex;align-items:center;gap:3px;min-width:0;color:#506079}
 .weekly-task-head>span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .weekly-task-head>b{flex:none;font-size:10px;color:#173b75}
 .weekly-task-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;color:#17212f;font-weight:600}
+.weekly-record-progress{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;color:#486177;font-size:11px;font-weight:700}
+.weekly-record-progress button{padding:3px 7px;font-size:11px;color:#176b50}
+.weekly-progress-track{height:6px;margin-top:5px;border-radius:99px;background:#e8edf1;overflow:hidden}
+.weekly-progress-track>span{display:block;height:100%;border-radius:inherit;background:#66bd94;transition:width .2s ease}
+.weekly-progress-check{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#486177}
+.weekly-progress-check input{width:15px;height:15px;min-width:15px;accent-color:#2a966b}
+.weekly-form .weekly-progress-check{flex-direction:row;align-items:center;font-weight:600}
 
 .plan-modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;justify-content:center;align-items:flex-start;padding:5vh 16px 16px;background:#17212f80}
 .plan-modal{width:min(720px,100%);max-height:90vh;background:#fff;border:1px solid #d8dee8;border-radius:12px;box-shadow:0 18px 60px #17212f40;display:flex;flex-direction:column;overflow:hidden}

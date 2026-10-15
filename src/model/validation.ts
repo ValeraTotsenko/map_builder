@@ -184,7 +184,14 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
     if (v.count !== null) {
       number(v.count, `${p}.count`)
       if (!Number.isSafeInteger(v.count) || (v.count as number) < 1 || (v.count as number) > 100000) fail(`${p}.count`, 'нужно целое число от 1 до 100000 или пустое значение')
+      if (v.completedCount !== undefined) {
+        number(v.completedCount, `${p}.completedCount`)
+        if (!Number.isSafeInteger(v.completedCount) || (v.completedCount as number) < 0 || (v.completedCount as number) > (v.count as number)) fail(`${p}.completedCount`, 'число выполненных задач должно быть от 0 до общего количества')
+      }
+    } else if (v.completedCount !== undefined) {
+      fail(`${p}.completedCount`, 'для задачи без количества используйте отметку выполнения')
     }
+    if (v.completed !== undefined && typeof v.completed !== 'boolean') fail(`${p}.completed`, 'ожидалось логическое значение')
     string(v.note, `${p}.note`, false)
   })
   const planEvents = collection(data, 'planEvents', ids, (v, p) => {

@@ -14,7 +14,7 @@ type Selection = { kind: EntityKind; id: string } | null;
 type Draft = { kind: EntityKind; mode: 'create' | 'edit'; item: Record<string, any> };
 type FilterState = { search: string; project: string; delivery: string; lane: string; person: string; status: string };
 type WeekCell = { projectId: string; deliveryId: string | null; weekStart: string };
-type TaskValues = Pick<WeeklyAssignment, 'title' | 'projectId' | 'deliveryId' | 'personId' | 'weekStart' | 'count' | 'note'>;
+type TaskValues = Pick<WeeklyAssignment, 'title' | 'projectId' | 'deliveryId' | 'personId' | 'weekStart' | 'count' | 'note' | 'completedCount' | 'completed'>;
 type PlanViewProps = { snapshot: Snapshot; onChange: (next: Snapshot) => void; onNavigateToProcess: (targetId: string) => void; initialSelection?: string };
 
 const DAY = 86400000;
@@ -343,10 +343,10 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   function assignmentCells(projectId: string, deliveryId: string | null) {
     return weeks.map(w => {
       const items = assignmentsForCell(projectId, deliveryId, w);
-      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${items.map(a => `${nameFor(snapshot, 'person', a.personId)}: ${a.title}${a.count === null ? '' : ` ×${a.count}`}${a.note ? ` — ${a.note}` : ''}`).join('\n')}` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell({ projectId, deliveryId, weekStart: w }); setSelectedWeek(w); }}>
+      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${items.map(a => `${nameFor(snapshot, 'person', a.personId)}: ${a.title} — ${a.count === null ? a.completed ? 'выполнено' : 'не выполнено' : `${a.completedCount ?? 0} из ${a.count} выполнено`}${a.note ? ` — ${a.note}` : ''}`).join('\n')}` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell({ projectId, deliveryId, weekStart: w }); setSelectedWeek(w); }}>
         {items.length ? <span className="weekly-cell-content">
-          {items.map(item => <span className="weekly-task" key={item.id} style={{ borderColor: people.find(person => person.id === item.personId)?.color || '#8995a7' }}>
-            <span className="weekly-task-head"><span>{nameFor(snapshot, 'person', item.personId)}</span>{item.count !== null && <b>×{item.count}</b>}</span>
+          {items.map(item => <span className="weekly-task" key={item.id} style={{ borderColor: people.find(person => person.id === item.personId)?.color || '#8995a7', '--task-progress': `${item.count === null ? item.completed ? 100 : 0 : Math.max(0, Math.min(100, (item.completedCount ?? 0) / item.count * 100))}%` } as CSSProperties}>
+            <span className="weekly-task-head"><span>{nameFor(snapshot, 'person', item.personId)}</span><b>{item.count === null ? item.completed ? '✓' : '' : `${item.completedCount ?? 0}/${item.count}`}</b></span>
             <span className="weekly-task-title">{item.title}</span>
           </span>)}
         </span> : <span className="weekly-cell-plus">+</span>}
@@ -427,14 +427,14 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       for (const e of pickedEvents) weekly.addRow([e.projectId ? nameFor(snapshot, 'project', e.projectId) : '', '', '', e.actorId ? nameFor(snapshot, 'person', e.actorId) : '', dateForExcel(e.startWeek), dateForExcel(e.endWeek || e.startWeek), e.text, '', '', e.type]);
       const tasks = workbook.addWorksheet('Недельные задачи', { views: [{ state: 'frozen', ySplit: 3 }] });
       tasks.addRow([meta]); tasks.addRow([]);
-      tasks.addRow(['Неделя', 'Человек', 'Проект', 'Поставка', 'Задача или пакет', 'Количество', 'Заметка']);
-      tasks.columns = [18, 24, 27, 27, 42, 16, 40].map(width => ({ width }));
-      for (const a of pickedAssignments) tasks.addRow([dateForExcel(a.weekStart), a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено', nameFor(snapshot, 'project', a.projectId), a.deliveryId ? nameFor(snapshot, 'delivery', a.deliveryId) : '', a.title, a.count, a.note]);
+      tasks.addRow(['Неделя', 'Человек', 'Проект', 'Поставка', 'Задача или пакет', 'Количество', 'Выполнено', 'Заметка']);
+      tasks.columns = [18, 24, 27, 27, 42, 16, 18, 40].map(width => ({ width }));
+      for (const a of pickedAssignments) tasks.addRow([dateForExcel(a.weekStart), a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено', nameFor(snapshot, 'project', a.projectId), a.deliveryId ? nameFor(snapshot, 'delivery', a.deliveryId) : '', a.title, a.count, a.count === null ? a.completed ? 'Да' : 'Нет' : a.completedCount ?? 0, a.note]);
       tasks.addRow([]); tasks.addRow(['Итоги по человеку']);
-      for (const id of [...new Set(pickedAssignments.map(a => a.personId || ''))]) tasks.addRow(['', id ? nameFor(snapshot, 'person', id) : 'Не назначено', '', '', '', pickedAssignments.filter(a => (a.personId || '') === id).reduce((n, a) => n + (a.count ?? 0), 0)]);
+      for (const id of [...new Set(pickedAssignments.map(a => a.personId || ''))]) { const items = pickedAssignments.filter(a => (a.personId || '') === id); tasks.addRow(['', id ? nameFor(snapshot, 'person', id) : 'Не назначено', '', '', '', items.reduce((n, a) => n + (a.count ?? 0), 0), items.reduce((n, a) => n + (a.completedCount ?? 0), 0)]); }
       tasks.addRow([]); tasks.addRow(['Итоги по проекту']);
-      for (const id of [...new Set(pickedAssignments.map(a => a.projectId))]) tasks.addRow(['', '', nameFor(snapshot, 'project', id), '', '', pickedAssignments.filter(a => a.projectId === id).reduce((n, a) => n + (a.count ?? 0), 0)]);
-      tasks.addRow(['Всего задач с количеством', '', '', '', '', pickedAssignments.reduce((n, a) => n + (a.count ?? 0), 0)]);
+      for (const id of [...new Set(pickedAssignments.map(a => a.projectId))]) { const items = pickedAssignments.filter(a => a.projectId === id); tasks.addRow(['', '', nameFor(snapshot, 'project', id), '', '', items.reduce((n, a) => n + (a.count ?? 0), 0), items.reduce((n, a) => n + (a.completedCount ?? 0), 0)]); }
+      tasks.addRow(['Всего задач с количеством', '', '', '', '', pickedAssignments.reduce((n, a) => n + (a.count ?? 0), 0), pickedAssignments.reduce((n, a) => n + (a.completedCount ?? 0), 0)]);
       tasks.addRow(['Записей без количества', '', '', '', '', pickedAssignments.filter(a => a.count === null).length]);
       for (const sheet of [objects, weekly, tasks]) {
         const header = sheet.getRow(3); header.font = { bold: true, color: { argb: 'FFFFFFFF' } }; header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; header.height = 27;
