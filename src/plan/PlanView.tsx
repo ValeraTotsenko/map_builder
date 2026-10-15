@@ -7,6 +7,7 @@ import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
 import './weekly_style.css';
+import './PlanToolbar.css';
 
 type EntityKind = 'project' | 'delivery' | 'lane' | 'block' | 'event' | 'person' | 'estimate' | 'link';
 type DateReference = { kind: 'unknown'; text?: string } | { kind: 'exact'; date: string; text?: string } | { kind: 'range'; start: string; end: string; text?: string };
@@ -101,7 +102,11 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [weekCell, setWeekCell] = useState<WeekCell | null>(null);
   const [catalog, setCatalog] = useState<CatalogKind | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [actionMenu, setActionMenu] = useState<'add' | 'more' | null>(null);
   const planScroll = useRef<HTMLDivElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const actionMenuTrigger = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => { if (initialSelection) { setDraft(null); setSelection(parseSelection(snapshot, initialSelection)); } }, [initialSelection]);
   useEffect(() => {
@@ -111,7 +116,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     return () => window.removeEventListener('beforeunload', warn);
   }, [draft]);
   useEffect(() => {
-    if (helpOpen || loadOpen || (!catalog && !selection && !weekCell)) return;
+    if (helpOpen || loadOpen || actionMenu || (!catalog && !selection && !weekCell)) return;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (catalog) setCatalog(null);
@@ -120,7 +125,15 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     };
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
-  }, [catalog, selection, weekCell, loadOpen, helpOpen, draft]);
+  }, [catalog, selection, weekCell, loadOpen, helpOpen, draft, actionMenu]);
+  useEffect(() => {
+    if (!actionMenu) return;
+    const onPointerDown = (event: PointerEvent) => { if (!actionMenuRef.current?.contains(event.target as Node)) setActionMenu(null); };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setActionMenu(null); actionMenuTrigger.current?.focus(); } };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('pointerdown', onPointerDown); document.removeEventListener('keydown', onKeyDown); };
+  }, [actionMenu]);
   const weeks = useMemo(() => Array.from({ length: weeksCount }, (_, i) => addWeeks(origin, i)), [origin, weeksCount]);
   useEffect(() => {
     if (!selectedWeek || !planScroll.current) return;
@@ -138,6 +151,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const events = data.planEvents;
   const assignments = data.weeklyAssignments;
   const people = data.actors.filter(a => a.type === 'person');
+  const activeFilterCount = [filters.project, filters.delivery, filters.lane, filters.person, filters.status].filter(Boolean).length;
+  const hasFilters = !!filters.search || activeFilterCount > 0;
   const hasDraft = !!selection && draft?.kind === selection.kind && draft.item.id === selection.id;
   const isDraft = hasDraft && draft?.mode === 'create';
   const selected = hasDraft ? draft!.item : selection ? (data[COLLECTION[selection.kind]] as { id: string }[]).find(x => x.id === selection.id) as any : null;
@@ -455,26 +470,41 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     <header className="plan-toolbar">
       <div className="plan-title"><h1>План проектов</h1><span>Недельный обзор поставок и работы</span></div>
       <div className="plan-actions">
-        <button className="plan-primary" onClick={() => add('project')}>+ Проект</button>
-        <button onClick={() => add('delivery')}>+ Поставка</button>
-        <button onClick={() => add('block')}>+ Блок</button>
-        <button onClick={() => add('lane')}>+ Дорожка</button>
-        <button onClick={() => add('person')}>+ Человек</button>
-        <button onClick={() => add('event')}>+ Событие</button>
-        <button className="plan-catalog-trigger" onClick={() => { setSelection(null); setDraft(null); setWeekCell(null); setLoadOpen(false); setCatalog('person'); }}>Объекты плана</button>
-        <button className="plan-help-trigger" onClick={() => setHelpOpen(true)} aria-haspopup="dialog">? Справка</button>
-        <div className="plan-export"><button disabled={exporting} onClick={() => exportXlsx('current')}>{exporting ? 'Готовим файл…' : 'Экспорт в Excel: выборка'}</button><button disabled={exporting} onClick={() => exportXlsx('all')}>Весь план</button></div>
+        <div className="plan-search-tools">
+          <input aria-label="Поиск по плану" placeholder="Поиск по плану" value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value })} />
+          <button className={`plan-filter-toggle ${activeFilterCount ? 'has-active' : ''}`} onClick={() => setFiltersOpen(open => !open)} aria-expanded={filtersOpen} aria-controls="plan-advanced-filters">Фильтры{activeFilterCount > 0 && <span className="plan-filter-count">{activeFilterCount}</span>}</button>
+          {hasFilters && <button className="plan-clear-filters" onClick={() => setFilters(DEFAULT_FILTERS)}>Сбросить</button>}
+        </div>
+        <div className="plan-menu-actions" ref={actionMenuRef}>
+          <button className="plan-primary" onClick={event => { actionMenuTrigger.current = event.currentTarget; setActionMenu(menu => menu === 'add' ? null : 'add'); }} aria-expanded={actionMenu === 'add'} aria-controls="plan-add-menu">+ Добавить</button>
+          <button onClick={event => { actionMenuTrigger.current = event.currentTarget; setActionMenu(menu => menu === 'more' ? null : 'more'); }} aria-expanded={actionMenu === 'more'} aria-controls="plan-more-menu">Ещё <span aria-hidden="true">▾</span></button>
+          {actionMenu === 'add' && <div className="plan-action-popover" id="plan-add-menu" aria-label="Добавить объект плана">
+            <strong>Добавить в план</strong>
+            <button onClick={() => { setActionMenu(null); add('project'); }}>Проект</button>
+            <button onClick={() => { setActionMenu(null); add('delivery'); }}>Поставку</button>
+            <button onClick={() => { setActionMenu(null); add('block'); }}>Рабочий блок</button>
+            <button onClick={() => { setActionMenu(null); add('lane'); }}>Дорожку</button>
+            <button onClick={() => { setActionMenu(null); add('person'); }}>Человека</button>
+            <button onClick={() => { setActionMenu(null); add('event'); }}>Событие</button>
+          </div>}
+          {actionMenu === 'more' && <div className="plan-action-popover" id="plan-more-menu" aria-label="Дополнительные действия">
+            <strong>Рабочее пространство</strong>
+            <button onClick={() => { setActionMenu(null); setSelection(null); setDraft(null); setWeekCell(null); setLoadOpen(false); setCatalog('person'); }}>Объекты плана</button>
+            <button onClick={() => { setActionMenu(null); setHelpOpen(true); }}>Справка</button>
+            <strong className="plan-popover-section">Экспорт в Excel</strong>
+            <button disabled={exporting} onClick={() => { setActionMenu(null); exportXlsx('current'); }}>Текущая выборка</button>
+            <button disabled={exporting} onClick={() => { setActionMenu(null); exportXlsx('all'); }}>Весь план</button>
+          </div>}
+        </div>
       </div>
     </header>
-    <div className="plan-filters">
-      <input aria-label="Поиск по плану" placeholder="Поиск по плану" value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value })} />
+    {filtersOpen && <div className="plan-filters plan-advanced-filters" id="plan-advanced-filters">
       <select aria-label="Фильтр проекта" value={filters.project} onChange={e => setFilters({ ...filters, project: e.target.value, delivery: '' })}><option value="">Все проекты</option>{projects.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
       <select aria-label="Фильтр поставки" value={filters.delivery} onChange={e => setFilters({ ...filters, delivery: e.target.value })}><option value="">Все поставки</option>{deliveries.filter(x => !filters.project || x.projectId === filters.project).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
       <select aria-label="Фильтр дорожки" value={filters.lane} onChange={e => setFilters({ ...filters, lane: e.target.value })}><option value="">Все дорожки</option>{data.lanes.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
       <select aria-label="Фильтр человека" value={filters.person} onChange={e => setFilters({ ...filters, person: e.target.value })}><option value="">Все люди</option>{people.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
       <select aria-label="Фильтр статуса" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}><option value="">Все статусы</option>{statusOptions.map(x => <option key={x} value={x}>{x}</option>)}</select>
-      <button onClick={() => setFilters(DEFAULT_FILTERS)}>Сброс</button>
-    </div>
+    </div>}
     <div className="plan-period">
       <button onClick={() => setOrigin(addWeeks(origin, -4))} aria-label="Предыдущие четыре недели">←</button>
       <button onClick={() => setOrigin(addWeeks(todayWeek(), -2))}>Сегодня</button>

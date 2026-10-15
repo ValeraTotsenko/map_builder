@@ -1,0 +1,20 @@
+.plan-toolbar{position:relative;z-index:6;gap:12px}
+.plan-toolbar .plan-actions{gap:10px}
+.plan-search-tools{display:flex;align-items:center;gap:6px;min-width:0}
+.plan-search-tools input{width:190px;min-width:130px;padding:7px 10px}
+.plan-filter-toggle{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.plan-filter-toggle.has-active{border-color:#87a9dc;color:#17477f;background:#edf4ff}
+.plan-filter-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#2563eb;color:#fff;font-size:10px;font-weight:700}
+.plan-toolbar .plan-clear-filters{border:0;background:transparent;color:#58708c;padding:7px 3px;font-size:12px}
+.plan-toolbar .plan-clear-filters:hover{background:transparent;color:#1d4ed8}
+.plan-menu-actions{display:flex;align-items:center;gap:6px;position:relative}
+.plan-menu-actions>button{white-space:nowrap}
+.plan-action-popover{position:absolute;right:0;top:calc(100% + 8px);width:220px;display:flex;flex-direction:column;gap:2px;padding:7px;background:#fff;border:1px solid #d8e1eb;border-radius:9px;box-shadow:0 12px 30px #1b355126;z-index:30}
+.plan-action-popover strong{padding:7px 9px 5px;color:#64748b;font-size:11px;font-weight:700}
+.plan-action-popover .plan-popover-section{margin-top:5px;padding-top:11px;border-top:1px solid #e8edf3}
+.plan-action-popover button{width:100%;text-align:left;border:0;background:transparent;padding:8px 9px;font-size:13px}
+.plan-action-popover button:hover,.plan-action-popover button:focus-visible{background:#edf4ff}
+.plan-advanced-filters{flex-wrap:wrap;overflow:visible;background:#fbfcfe}
+.plan-advanced-filters select{flex:1 1 150px;max-width:220px}
+@media(max-width:900px){.plan-toolbar .plan-actions{width:100%;justify-content:space-between}.plan-search-tools{flex:1}.plan-search-tools input{flex:1;width:auto}}
+@media(max-width:600px){.plan-toolbar{padding:10px 12px}.plan-toolbar .plan-actions{align-items:stretch;flex-wrap:wrap}.plan-search-tools{width:100%;flex:auto}.plan-menu-actions{margin-left:auto}.plan-advanced-filters{padding:10px 12px}.plan-advanced-filters select{max-width:none}}
