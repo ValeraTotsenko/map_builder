@@ -26,7 +26,7 @@
 .weekly-load-overview strong { color: #193b65; font-size: 16px; }
 .weekly-load-content { min-height: 0; overflow-y: auto; padding: 14px 24px 20px; display: flex; flex-direction: column; gap: 16px; }
 .weekly-load-empty { margin: 14px 0; color: #65758a; font-size: 14px; }
-.weekly-load-person { border: 1px solid #dce4ed; border-radius: 9px; overflow: hidden; }
+.weekly-load-person { flex: none; border: 1px solid #dce4ed; border-radius: 9px; overflow: hidden; }
 .weekly-load-person-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: #f4f7fa; }
 .weekly-load-person-head h3 { display: flex; align-items: center; margin: 0; font-size: 15px; }
 .weekly-load-person-head .weekly-person-dot { width: 12px; height: 12px; }
