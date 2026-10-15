@@ -1,0 +1,28 @@
+.delivery-volume{display:flex;flex-direction:column;gap:14px;border-top:1px solid #e4e8ee;padding-top:16px}
+.delivery-volume-heading h3{margin:0 0 4px;font-size:15px;color:#193b65}
+.delivery-volume-heading p,.delivery-volume-hint{margin:0;color:#667587;font-size:11px;line-height:1.45}
+.delivery-volume-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.delivery-volume-inputs label{display:flex;flex-direction:column;gap:5px;min-width:0;color:#445063;font-size:12px;font-weight:600}
+.delivery-volume-inputs input{width:100%;font-weight:400}
+.delivery-volume-error{color:#b42318;font-size:11px}
+.delivery-volume-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;overflow:hidden;border:1px solid #dce6f0;border-radius:8px;background:#dce6f0}
+.delivery-volume-totals>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:11px;background:#f6f9fc}
+.delivery-volume-totals strong{font-size:21px;line-height:1.1;color:#173b75;font-variant-numeric:tabular-nums}
+.delivery-volume-totals span{font-size:10px;line-height:1.3;color:#5c6d80}
+.delivery-volume-breakdown{display:flex;flex-direction:column;gap:6px}
+.delivery-volume-bar,.delivery-volume-track{display:flex;width:100%;height:10px;overflow:hidden;border-radius:99px;background:#edf1f5}
+.delivery-volume-bar>span,.delivery-volume-track>span{display:block;height:100%;flex:none}
+.delivery-volume-bar .is-testing,.delivery-volume-legend .is-testing{background:#568ed2}
+.delivery-volume-bar .is-development,.delivery-volume-legend .is-development{background:#e4b86d}
+.delivery-volume-legend{display:flex;flex-wrap:wrap;gap:6px 15px;color:#52677c;font-size:11px}
+.delivery-volume-legend span{display:inline-flex;align-items:center;gap:5px}
+.delivery-volume-legend i{display:inline-block;width:8px;height:8px;border-radius:50%}
+.delivery-volume-progress{display:flex;flex-direction:column;gap:5px}
+.delivery-volume-progress-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#445063}
+.delivery-volume-progress-head strong{color:#173b75;font-variant-numeric:tabular-nums}
+.delivery-volume-track{height:8px}
+.delivery-volume-track .is-scheduled{background:#74a9e5}
+.delivery-volume-track .is-completed{background:#65bc93}
+.delivery-volume-progress small{color:#667587;font-size:10px}
+.delivery-volume-unquantified{margin:0;padding:8px 10px;border-radius:6px;background:#f5f7fa;color:#52677c;font-size:11px}
+@media(max-width:560px){.delivery-volume-totals strong{font-size:17px}.delivery-volume-totals>div{padding:8px}.delivery-volume-inputs{gap:7px}}

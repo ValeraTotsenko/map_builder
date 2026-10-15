@@ -160,6 +160,12 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
   })
   const deliveries = collection(data, 'deliveries', ids, (v, p) => {
     string(v.projectId, `${p}.projectId`); string(v.kind, `${p}.kind`, false); string(v.name, `${p}.name`)
+    for (const key of ['testingTaskCount', 'developmentTaskCount'] as const) {
+      if (v[key] === undefined) continue
+      number(v[key], `${p}.${key}`)
+      if (!Number.isSafeInteger(v[key]) || (v[key] as number) < 0) fail(`${p}.${key}`, 'нужно целое неотрицательное число')
+    }
+    if (!Number.isSafeInteger((v.testingTaskCount as number || 0) + (v.developmentTaskCount as number || 0))) fail(p, 'суммарный объём задач слишком велик')
     optionalString(v.ownerActorId, `${p}.ownerActorId`)
     dateReference(v.startDate, `${p}.startDate`); dateReference(v.checkpointDate, `${p}.checkpointDate`)
     dateReference(v.deadline, `${p}.deadline`); string(v.status, `${p}.status`); string(v.note, `${p}.note`, false)

@@ -4,6 +4,7 @@ import WeeklyTasksPanel from './WeeklyTasksPanel';
 import WeeklyLoadDialog from './WeeklyLoadDialog';
 import PlanHelpDialog from './PlanHelpDialog';
 import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
+import DeliveryVolumeCard from './DeliveryVolumeCard';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
 import './weekly_style.css';
@@ -172,6 +173,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     return true;
   }
   function update(kind: EntityKind, id: string, values: Record<string, unknown>) {
+    setFieldError('');
     if (draft?.kind === kind && draft.item.id === id) {
       setDraft({ ...draft, item: { ...draft.item, ...values } });
       return;
@@ -596,11 +598,11 @@ function Inspector({ snapshot, kind, item, isDraft, fieldError, update, add, cho
   };
   const estimateSection = (targetType: 'delivery' | 'weekBlock') => {
     const estimates = d.estimates.filter(e => e.targetType === targetType && e.targetId === item.id);
-    return <section className="plan-inspector-section"><h3>Оценки объёма</h3>{estimates.map(e => <div className="plan-related" key={e.id}><span>{e.value} {e.unit} · {e.kind === 'actual' ? 'факт' : e.kind === 'forecast' ? 'прогноз' : 'оценка'}</span><button onClick={() => choose('estimate', e.id)}>Изменить оценку</button></div>)}<button onClick={() => add('estimate', { targetType, targetId: item.id })}>+ Добавить оценку</button></section>;
+    return <section className="plan-inspector-section"><h3>{targetType === 'delivery' ? 'Дополнительные оценки' : 'Оценки объёма'}</h3>{estimates.map(e => <div className="plan-related" key={e.id}><span>{e.value} {e.unit} · {e.kind === 'actual' ? 'факт' : e.kind === 'forecast' ? 'прогноз' : 'оценка'}</span><button onClick={() => choose('estimate', e.id)}>Изменить оценку</button></div>)}<button onClick={() => add('estimate', { targetType, targetId: item.id })}>+ Добавить оценку</button></section>;
   };
   return <div className="plan-inspector-body">
     {kind === 'project' && <>{input('Название', 'name')}{input('Тип', 'type')}{status()}{area('Заметки', 'notes')}{!isDraft && <section className="plan-inspector-section"><h3>Поставки</h3>{d.deliveries.filter(x => x.projectId === item.id).map(x => <div className="plan-related" key={x.id}>{x.name}</div>)}<button onClick={() => add('delivery', { projectId: item.id })}>+ Поставка</button></section>}</>}
-    {kind === 'delivery' && <>{select('Проект', 'projectId', d.projects)}{input('Вид поставки', 'kind')}{input('Название / версия', 'name')}{select('Владелец', 'ownerActorId', d.actors.filter(x => x.type === 'person'))}{dateRef('Начало', 'startDate')}{dateRef('Контрольная дата', 'checkpointDate')}{dateRef('Плановый срок', 'deadline')}{status()}{area('Заметка', 'note')}{!isDraft && <>{estimateSection('delivery')}{linkSection('delivery')}<button onClick={() => add('block', { projectId: item.projectId, deliveryId: item.id })}>+ Недельный блок</button></>}</>}
+    {kind === 'delivery' && <>{select('Проект', 'projectId', d.projects)}{input('Вид поставки', 'kind')}{input('Название / версия', 'name')}{select('Владелец', 'ownerActorId', d.actors.filter(x => x.type === 'person'))}{dateRef('Начало', 'startDate')}{dateRef('Контрольная дата', 'checkpointDate')}{dateRef('Плановый срок', 'deadline')}{status()}<DeliveryVolumeCard delivery={item} assignments={d.weeklyAssignments} onChange={update} fieldError={fieldError} />{area('Заметка', 'note')}{!isDraft && <>{estimateSection('delivery')}{linkSection('delivery')}<button onClick={() => add('block', { projectId: item.projectId, deliveryId: item.id })}>+ Недельный блок</button></>}</>}
     {kind === 'lane' && <>{input('Название', 'name')}{input('Порядок', 'order', 'number')}</>}
     {kind === 'block' && <>{select('Проект', 'projectId', d.projects)}{select('Поставка', 'deliveryId', d.deliveries.filter(x => x.projectId === item.projectId))}{select('Дорожка', 'laneId', d.lanes)}{select('Человек', 'personId', d.actors.filter(x => x.type === 'person'), 'Не назначено')}{input('Содержание', 'content')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek} onChange={e => weekChange('endWeek', e.target.value)} /></label></div><small>Хранятся понедельники. Последняя неделя включена.</small>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{status()}{area('Заметка', 'note')}{!isDraft && <>{estimateSection('weekBlock')}{linkSection('weekBlock')}</>}</>}
     {kind === 'event' && <>{input('Тип события', 'type')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek || ''} onChange={e => weekChange('endWeek', e.target.value)} /></label></div>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{select('Проект', 'projectId', d.projects)}{select('Участник', 'actorId', d.actors.filter(x => x.type === 'person'))}{area('Текст', 'text')}</>}
