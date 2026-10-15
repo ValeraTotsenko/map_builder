@@ -65,7 +65,7 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
   function save() {
     if (!draft?.title.trim()) { setError('Введите название задачи.'); return; }
     if (draft.count !== null && (!Number.isSafeInteger(draft.count) || draft.count < 1 || draft.count > 100000)) { setError('Количество должно быть целым числом от 1 до 100000 или пустым.'); return; }
-    if (draft.count !== null && (!Number.isSafeInteger(draft.completedCount ?? 0) || (draft.completedCount ?? 0) < 0 || (draft.completedCount ?? 0) > draft.count)) { setError('Число выполненных задач должно быть от 0 до общего количества.'); return; }
+    if (draft.count !== null && (!Number.isSafeInteger(draft.completedCount ?? 0) || (draft.completedCount ?? 0) < 0)) { setError('Число выполненных задач должно быть целым неотрицательным числом.'); return; }
     if (onSave({ ...draft, title: draft.title.trim(), weekStart: monday(draft.weekStart), completedCount: draft.count === null ? undefined : draft.completedCount ?? 0, completed: draft.count === null ? !!draft.completed : false }, editingId)) {
       setDraft(null); setEditingId(undefined); setError('');
     }
@@ -88,8 +88,8 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
         <div className="weekly-record-meta">{person(record.personId)} · {project(record.projectId)}{record.deliveryId && ` / ${delivery(record.deliveryId)}`} · {record.weekStart}</div>
         {record.note && <p>{record.note}</p>}
         {record.count === null ? <label className="weekly-progress-check"><input type="checkbox" checked={!!record.completed} onChange={event => onSave({ ...valuesFor(record), completed: event.target.checked }, record.id)} />Выполнено</label> : <>
-          <div className="weekly-record-progress"><span>Выполнено {record.completedCount ?? 0} из {record.count}</span><button onClick={() => onSave({ ...valuesFor(record), completedCount: (record.completedCount ?? 0) === record.count ? 0 : record.count ?? 0 }, record.id)}>{(record.completedCount ?? 0) === record.count ? 'Сбросить' : 'Отметить всё'}</button></div>
-          <div className="weekly-progress-track" role="progressbar" aria-label={`Выполнение: ${record.title}`} aria-valuenow={record.completedCount ?? 0} aria-valuemin={0} aria-valuemax={record.count}><span style={{ width: `${(record.completedCount ?? 0) / record.count * 100}%` }} /></div>
+          <div className="weekly-record-progress"><span>Выполнено {record.completedCount ?? 0} из {record.count}{(record.completedCount ?? 0) > record.count && <em>+{(record.completedCount ?? 0) - record.count} сверх плана</em>}</span><button onClick={() => onSave({ ...valuesFor(record), completedCount: (record.completedCount ?? 0) >= (record.count ?? 0) ? 0 : record.count ?? 0 }, record.id)}>{(record.completedCount ?? 0) >= record.count ? 'Сбросить' : 'Отметить всё'}</button></div>
+          <div className="weekly-progress-track" role="progressbar" aria-label={`Выполнение: ${record.title}`} aria-valuenow={Math.min(record.completedCount ?? 0, record.count)} aria-valuemin={0} aria-valuemax={record.count} aria-valuetext={`${record.completedCount ?? 0} из ${record.count} выполнено`}><span style={{ width: `${Math.min(100, (record.completedCount ?? 0) / record.count * 100)}%` }} /></div>
         </>}
         <div className="weekly-record-actions"><button onClick={() => begin(record)}>Изменить</button><button onClick={() => { onSave({ ...valuesFor(record), weekStart: nextWeek(record.weekStart), completedCount: record.count === null ? undefined : 0, completed: false }); }}>Копировать на следующую неделю</button><button className="danger" onClick={() => onDelete(record.id)}>Удалить</button></div>
       </div>)}
@@ -101,11 +101,12 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
         <label>Поставка<select value={draft.deliveryId || ''} onChange={e => setDraft({ ...draft, deliveryId: e.target.value || null })}><option value="">Без поставки</option>{snapshot.data.deliveries.filter(item => item.projectId === draft.projectId).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Неделя с понедельника<input type="date" value={draft.weekStart} onChange={e => e.target.value && setDraft({ ...draft, weekStart: monday(e.target.value) })} /></label>
         <label>Ответственный<select value={draft.personId || ''} onChange={e => setDraft({ ...draft, personId: e.target.value || null })}><option value="">Не назначено</option>{people.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>Количество задач (необязательно)<input type="number" min="1" max="100000" step="1" value={draft.count ?? ''} onChange={e => { const count = e.target.value === '' ? null : Number(e.target.value); setDraft({ ...draft, count, completedCount: count === null ? undefined : Math.min(draft.completedCount ?? 0, count), completed: false }); }} /></label>
+        <label>Количество задач (необязательно)<input type="number" min="1" max="100000" step="1" value={draft.count ?? ''} onChange={e => { const count = e.target.value === '' ? null : Number(e.target.value); setDraft({ ...draft, count, completedCount: count === null ? undefined : draft.completedCount ?? 0, completed: false }); }} /></label>
         <small className="weekly-muted">Если количество пока неизвестно, оставьте поле пустым. Название и заметка останутся в расписании.</small>
         {draft.count === null ? <label className="weekly-progress-check"><input type="checkbox" checked={!!draft.completed} onChange={e => setDraft({ ...draft, completed: e.target.checked })} />Выполнено</label> : <>
-          <label>Выполнено задач<input type="number" min="0" max={draft.count} step="1" value={draft.completedCount ?? 0} onChange={e => setDraft({ ...draft, completedCount: e.target.value === '' ? 0 : Number(e.target.value) })} /></label>
-          <label className="weekly-progress-check"><input type="checkbox" checked={(draft.completedCount ?? 0) === draft.count} onChange={e => setDraft({ ...draft, completedCount: e.target.checked ? draft.count! : 0 })} />Выполнено полностью</label>
+          <label>Выполнено задач<input type="number" min="0" step="1" value={draft.completedCount ?? 0} onChange={e => setDraft({ ...draft, completedCount: e.target.value === '' ? 0 : Number(e.target.value) })} /></label>
+          <label className="weekly-progress-check"><input type="checkbox" checked={(draft.completedCount ?? 0) >= draft.count} onChange={e => setDraft({ ...draft, completedCount: e.target.checked ? draft.count! : 0 })} />Выполнено полностью</label>
+          {(draft.completedCount ?? 0) > draft.count && <small className="weekly-overplan-note">Перевыполнение: +{(draft.completedCount ?? 0) - draft.count} сверх плана</small>}
         </>}
         <label>Заметка<textarea rows={2} value={draft.note} onChange={e => setDraft({ ...draft, note: e.target.value })} /></label>
         {outside && <p className="weekly-warning">Неделя вне указанного срока поставки. Сохранение разрешено.</p>}
