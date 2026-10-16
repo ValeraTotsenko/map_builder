@@ -59,3 +59,21 @@
 
 .plan-delivery-row-progress .is-scheduled { background: #a7c8f5; }
 .plan-delivery-row-progress .is-completed { background: #55b995; }
+
+.plan-page .plan-project-drag {
+  flex: none;
+  width: 16px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8292a7;
+  font-size: 15px;
+  line-height: 1;
+  cursor: grab;
+}
+
+.plan-page .plan-project-drag:hover { color: #2563eb; }
+.plan-page .plan-project-drag:active { cursor: grabbing; }
+.plan-row.is-drop-before { box-shadow: inset 0 3px #2563eb; }
+.plan-row.is-drop-after { box-shadow: inset 0 -3px #2563eb; }

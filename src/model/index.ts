@@ -123,6 +123,7 @@ export type Delivery = EntityBase & {
   name: string
   testingTaskCount?: number
   developmentTaskCount?: number
+  manualCompletedTaskCount?: number
   ownerActorId?: string | null
   startDate: DateReference
   checkpointDate: DateReference

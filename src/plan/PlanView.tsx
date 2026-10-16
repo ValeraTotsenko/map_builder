@@ -107,6 +107,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [helpOpen, setHelpOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [actionMenu, setActionMenu] = useState<'add' | 'more' | null>(null);
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [projectDrop, setProjectDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null);
   const planScroll = useRef<HTMLDivElement>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const actionMenuTrigger = useRef<HTMLButtonElement | null>(null);
@@ -305,6 +307,21 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     setSelection(null);
   }
   function toggle(id: string) { setCollapsed(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
+  function moveProject(sourceId: string, targetId: string, side: 'before' | 'after') {
+    if (sourceId === targetId) return;
+    commit(next => {
+      const ordered = [...next.data.projects].sort((a, b) => a.order - b.order);
+      const sourceIndex = ordered.findIndex(project => project.id === sourceId);
+      if (sourceIndex < 0) return;
+      const [source] = ordered.splice(sourceIndex, 1);
+      const targetIndex = ordered.findIndex(project => project.id === targetId);
+      if (targetIndex < 0) return;
+      ordered.splice(targetIndex + (side === 'after' ? 1 : 0), 0, source);
+      ordered.forEach((project, index) => {
+        if (project.order !== index) { project.order = index; project.updatedAt = stamp(); }
+      });
+    });
+  }
   function choose(kind: EntityKind, id: string) { setCatalog(null); setDraft(null); setWeekCell(null); setLoadOpen(false); setSelection({ kind, id }); setMessage(''); setFieldError(''); }
   function fitsFilter(text: string) { return !filters.search || text.toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()); }
   const filteredBlocks = blocks.filter(b =>
@@ -378,18 +395,21 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     const projectId = kind === 'project' ? id : delivery?.projectId || '';
     const deliveryId = kind === 'delivery' ? id : null;
     const volume = delivery ? deliveryMetrics(delivery, assignments) : null;
-    const showVolume = volume && (volume.hasVolume || volume.scheduled > 0 || volume.unquantified > 0);
-    const volumeBase = volume ? (volume.hasVolume ? volume.total : volume.scheduled) : 0;
+    const showVolume = volume && (volume.hasVolume || volume.scheduled > 0 || volume.unquantified > 0 || volume.completedManual !== undefined);
+    const volumeBase = volume ? (volume.total > 0 ? volume.total : Math.max(volume.scheduled, volume.completed)) : 0;
     const volumePercent = (value: number) => volumeBase > 0 ? `${Math.min(100, value / volumeBase * 100)}%` : '0%';
     const maxTasks = projectId ? Math.max(0, ...weeks.map(w => assignmentsForCell(projectId, deliveryId, w).length)) : 0;
     const rowHeight = Math.max(66, 8 + maxTasks * 54 + Math.max(0, maxTasks - 1) * 4);
-    return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''}`} style={projectId ? { height: rowHeight } : undefined} key={`${kind}-${id}`}>
+    return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''} ${kind === 'project' && projectDrop?.id === id ? `is-drop-${projectDrop.side}` : ''}`} style={projectId ? { height: rowHeight } : undefined} key={`${kind}-${id}`}
+      onDragOver={kind === 'project' ? event => { if (!draggingProjectId || draggingProjectId === id) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; const bounds = event.currentTarget.getBoundingClientRect(); const side = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'; if (projectDrop?.id !== id || projectDrop.side !== side) setProjectDrop({ id, side }); } : undefined}
+      onDrop={kind === 'project' ? event => { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); const side = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'; if (draggingProjectId && draggingProjectId !== id) moveProject(draggingProjectId, id, side); setDraggingProjectId(null); setProjectDrop(null); } : undefined}>
       <div className="plan-row-label" style={{ paddingLeft: 14 + depth * 18 }}>
+        {kind === 'project' && <button type="button" className="plan-project-drag" draggable aria-label={`Перетащить проект «${label}». Alt и стрелки вверх или вниз также меняют порядок.`} title="Перетащить проект; Alt+↑/↓ — изменить порядок" onDragStart={event => { event.dataTransfer.setData('text/plain', id); event.dataTransfer.effectAllowed = 'move'; setDraggingProjectId(id); setProjectDrop(null); }} onDragEnd={() => { setDraggingProjectId(null); setProjectDrop(null); }} onKeyDown={event => { if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault(); const index = projects.findIndex(project => project.id === id); const target = projects[index + (event.key === 'ArrowUp' ? -1 : 1)]; if (target) moveProject(id, target.id, event.key === 'ArrowUp' ? 'before' : 'after'); }}>⋮⋮</button>}
         {expandable ? <button className="plan-collapse" onClick={() => toggle(id)} aria-label={collapsed.has(id) ? 'Развернуть' : 'Свернуть'}>{collapsed.has(id) ? '▸' : '▾'}</button> : <span className="plan-collapse-spacer" />}
         {showVolume && volume ? <div className="plan-delivery-row-content">
           <div className="plan-delivery-row-heading"><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></div>
-          <div className="plan-delivery-row-stats" title={`В тестировании: ${volume.testing}; в разработке: ${volume.development}; всего: ${volume.hasVolume ? volume.total : 'не задано'}; распределено: ${volume.scheduled}; выполнено: ${volume.completed}${volume.unquantified ? `; без количества: ${volume.unquantified}, выполнено: ${volume.unquantifiedCompleted}` : ''}`}>
-            <span>Тест <b>{volume.testing}</b></span><span>Разр <b>{volume.development}</b></span><span>Всего <b>{volume.hasVolume ? volume.total : '—'}</b></span><span>План <b>{volume.scheduled}</b></span><span>Готово <b>{volume.completed}</b></span>
+          <div className="plan-delivery-row-stats" title={`В тестировании: ${volume.testing}; в разработке: ${volume.development}; всего: ${volume.hasVolume ? volume.total : 'не задано'}; распределено: ${volume.scheduled}; выполнено: ${volume.completed}${volume.completedManual !== undefined ? ` (ручной итог; по неделям: ${volume.completedFromWeeks})` : ''}${volume.unquantified ? `; без количества: ${volume.unquantified}, выполнено: ${volume.unquantifiedCompleted}` : ''}`}>
+            <span>Тест <b>{volume.testing}</b></span><span>Разр <b>{volume.development}</b></span><span>Всего <b>{volume.hasVolume ? volume.total : '—'}</b></span><span>План <b>{volume.scheduled}</b></span><span>Готово <b>{volume.completed}{volume.completedManual !== undefined ? '*' : ''}</b></span>
           </div>
           <div className="plan-delivery-row-progress" role="img" aria-label={`Распределено ${volume.scheduled} из ${volume.hasVolume ? volume.total : 'неуказанного объёма'}, выполнено ${volume.completed}`}><span className="is-scheduled" style={{ width: volumePercent(volume.scheduled) }} /><span className="is-completed" style={{ width: volumePercent(volume.completed) }} /></div>
         </div> : <><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></>}

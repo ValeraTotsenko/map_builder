@@ -160,7 +160,7 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
   })
   const deliveries = collection(data, 'deliveries', ids, (v, p) => {
     string(v.projectId, `${p}.projectId`); string(v.kind, `${p}.kind`, false); string(v.name, `${p}.name`)
-    for (const key of ['testingTaskCount', 'developmentTaskCount'] as const) {
+    for (const key of ['testingTaskCount', 'developmentTaskCount', 'manualCompletedTaskCount'] as const) {
       if (v[key] === undefined) continue
       number(v[key], `${p}.${key}`)
       if (!Number.isSafeInteger(v[key]) || (v[key] as number) < 0) fail(`${p}.${key}`, 'нужно целое неотрицательное число')

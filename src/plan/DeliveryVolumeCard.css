@@ -4,6 +4,9 @@
 .delivery-volume-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .delivery-volume-inputs label{display:flex;flex-direction:column;gap:5px;min-width:0;color:#445063;font-size:12px;font-weight:600}
 .delivery-volume-inputs input{width:100%;font-weight:400}
+.delivery-volume-manual{display:flex;flex-direction:column;gap:5px;color:#445063;font-size:12px;font-weight:600}
+.delivery-volume-manual input{width:100%;font-weight:400}
+.delivery-volume-manual small{color:#667587;font-size:10px;line-height:1.4;font-weight:400}
 .delivery-volume-error{color:#b42318;font-size:11px}
 .delivery-volume-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;overflow:hidden;border:1px solid #dce6f0;border-radius:8px;background:#dce6f0}
 .delivery-volume-totals>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding:11px;background:#f6f9fc}
