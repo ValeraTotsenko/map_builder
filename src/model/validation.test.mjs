@@ -29,10 +29,24 @@ function snapshot() {
       checkpoints: [], sharedMilestones: [], dependencies: [], actors: [], participations: [], handovers: [],
       projects: [{ ...base('project'), name: 'Проект', type: '', order: 0, status: 'planned' }],
       deliveries: [{ ...base('delivery'), projectId: 'project', kind: '', name: 'Поставка', startDate: exact('2026-10-19'), checkpointDate: exact('2026-10-23'), deadline: exact('2026-10-30'), status: 'planned', note: '' }],
-      lanes: [], weekBlocks: [], planEvents: [], estimates: [], crossLinks: [],
+      lanes: [], weekBlocks: [], weeklyAssignments: [], personalTasks: [], planEvents: [], estimates: [], crossLinks: [],
     },
   }
 }
+
+test('personal tasks accept a valid daily status and reject bad dates or completion state', () => {
+  const data = snapshot()
+  const task = { ...base('personal-task'), title: 'Проверить релиз', note: '', plannedDate: '2026-10-25', status: 'todo' }
+  data.data.personalTasks.push(task)
+  validateSnapshot(data)
+  task.plannedDate = '2026-02-30'
+  assert.throws(() => validateSnapshot(data), /personalTasks\[0\]\.plannedDate/)
+  task.plannedDate = '2026-10-25'
+  task.status = 'done'
+  assert.throws(() => validateSnapshot(data), /personalTasks\[0\]\.completedDate/)
+  task.completedDate = '2026-10-25'
+  validateSnapshot(data)
+})
 
 test('valid exact dates, matching boundaries and unknown dates are accepted', () => {
   const data = snapshot()

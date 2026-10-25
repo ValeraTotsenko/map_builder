@@ -87,7 +87,7 @@ function ref(id: unknown, path: string, ids: Set<string>, nullable = false): voi
 }
 
 /** Throws a user-readable error for malformed, incompatible or dangling data. */
-function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = false): void {
+function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = false, legacyPersonal = false): void {
   const root = object(value, 'snapshot')
   const workspace = object(root.workspace, 'workspace')
   const data = object(root.data, 'data')
@@ -220,6 +220,18 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
     string(v.note, `${p}.note`, false)
   })
 
+  if (!legacyPersonal) collection(data, 'personalTasks', ids, (v, p) => {
+    string(v.title, `${p}.title`)
+    if ((v.title as string).length > 200) fail(`${p}.title`, 'не более 200 символов')
+    string(v.note, `${p}.note`, false)
+    if ((v.note as string).length > 4000) fail(`${p}.note`, 'не более 4000 символов')
+    date(v.plannedDate, `${p}.plannedDate`)
+    oneOf(v.status, `${p}.status`, ['todo', 'doing', 'done'])
+    if (v.completedDate !== undefined) date(v.completedDate, `${p}.completedDate`)
+    if (v.status === 'done' && v.completedDate === undefined) fail(`${p}.completedDate`, 'для выполненной задачи укажите дату выполнения')
+    if (v.status !== 'done' && v.completedDate !== undefined) fail(`${p}.completedDate`, 'дата выполнения допустима только для выполненной задачи')
+  })
+
   if (!legacy) {
     const zones = collection(data, 'canvasZones', ids, (v, p) => {
       string(v.name, `${p}.name`); string(v.color, `${p}.color`)
@@ -345,10 +357,15 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
 
 /** Validates the original workspace before adding an empty canvas. */
 export function validateLegacySnapshot(value: unknown): void {
-  validateSnapshotShape(value, true, true)
+  validateSnapshotShape(value, true, true, true)
 }
 
 /** Validates a version 2 workspace before adding weekly assignments. */
 export function validateV2Snapshot(value: unknown): void {
-  validateSnapshotShape(value, false, true)
+  validateSnapshotShape(value, false, true, true)
+}
+
+/** Version 3 had weekly assignments but no personal task calendar. */
+export function validateV3Snapshot(value: unknown): void {
+  validateSnapshotShape(value, false, false, true)
 }

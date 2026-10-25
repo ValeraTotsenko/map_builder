@@ -1,6 +1,6 @@
 import { BACKUP_FORMAT, SCHEMA_VERSION, createEmptyCanvas, createEmptySnapshot, getSnapshotSummary } from './index'
 import type { Backup, ImportPreview, Snapshot, SnapshotSummary } from './index'
-import { validateLegacySnapshot, validateSnapshot, validateV2Snapshot } from './validation'
+import { validateLegacySnapshot, validateSnapshot, validateV2Snapshot, validateV3Snapshot } from './validation'
 
 const DB_NAME = 'process-planner-workspace-v1'
 const STORE = 'snapshots'
@@ -86,14 +86,20 @@ export function migrateSnapshot(value: unknown): Snapshot {
     const canvas = createEmptyCanvas()
     const migrated: Snapshot = {
       workspace: old.workspace,
-      data: { ...old.data, canvas, canvasZones: [], canvasNodes: [], canvasEdges: [], weeklyAssignments: [] },
+      data: { ...old.data, canvas, canvasZones: [], canvasNodes: [], canvasEdges: [], weeklyAssignments: [], personalTasks: [] },
     }
     validateSnapshot(migrated)
     return migrated
   }
   if (raw?.data && !('weeklyAssignments' in raw.data)) {
     validateV2Snapshot(value)
-    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, weeklyAssignments: [] } }
+    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, weeklyAssignments: [], personalTasks: [] } }
+    validateSnapshot(migrated)
+    return migrated
+  }
+  if (raw?.data && !('personalTasks' in raw.data)) {
+    validateV3Snapshot(value)
+    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, personalTasks: [] } }
     validateSnapshot(migrated)
     return migrated
   }
@@ -103,17 +109,18 @@ export function migrateSnapshot(value: unknown): Snapshot {
 
 type LegacyBackup = Omit<Backup, 'schemaVersion' | 'data'> & {
   schemaVersion: 1
-  data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges' | 'weeklyAssignments'>
+  data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges' | 'weeklyAssignments' | 'personalTasks'>
 }
 
-type V2Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 2; data: Omit<Snapshot['data'], 'weeklyAssignments'> }
+type V2Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 2; data: Omit<Snapshot['data'], 'weeklyAssignments' | 'personalTasks'> }
+type V3Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 3; data: Omit<Snapshot['data'], 'personalTasks'> }
 
-export function validateBackup(value: unknown): asserts value is Backup | LegacyBackup | V2Backup {
+export function validateBackup(value: unknown): asserts value is Backup | LegacyBackup | V2Backup | V3Backup {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON-копия должна быть объектом')
   const raw = value as Record<string, unknown>
   if (raw.format !== BACKUP_FORMAT) throw new Error(`Неверный идентификатор формата: ожидается ${BACKUP_FORMAT}`)
   if (!Number.isInteger(raw.schemaVersion)) throw new Error('Отсутствует целая версия схемы')
-  if (raw.schemaVersion !== SCHEMA_VERSION && raw.schemaVersion !== 1 && raw.schemaVersion !== 2) {
+  if (raw.schemaVersion !== SCHEMA_VERSION && raw.schemaVersion !== 1 && raw.schemaVersion !== 2 && raw.schemaVersion !== 3) {
     if ((raw.schemaVersion as number) > SCHEMA_VERSION) throw new Error(`Копия создана в более новой версии схемы (${raw.schemaVersion}); поддерживается ${SCHEMA_VERSION}`)
     throw new Error(`Версия схемы ${raw.schemaVersion} не поддерживается: миграция не реализована`)
   }
@@ -122,6 +129,7 @@ export function validateBackup(value: unknown): asserts value is Backup | Legacy
   }
   if (raw.schemaVersion === 1) validateLegacySnapshot(value)
   else if (raw.schemaVersion === 2) validateV2Snapshot(value)
+  else if (raw.schemaVersion === 3) validateV3Snapshot(value)
   else validateSnapshot(value)
 }
 
@@ -175,7 +183,7 @@ export async function parseBackup(json: string): Promise<ImportPreview> {
  * Saves the previous state and replaces the entire workspace in one IDB
  * readwrite transaction. Failure aborts both writes; no partial restore.
  */
-export async function restoreBackup(backup: Backup | LegacyBackup | V2Backup): Promise<Snapshot> {
+export async function restoreBackup(backup: Backup | LegacyBackup | V2Backup | V3Backup): Promise<Snapshot> {
   const normalized = normalizeBackup(backup)
   const db = await openDb()
   try {

@@ -6,6 +6,7 @@ import PlanHelpDialog from './PlanHelpDialog';
 import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
 import DeliveryVolumeCard from './DeliveryVolumeCard';
 import { deliveryMetrics } from './deliveryMetrics';
+import { createWeeklyLoadWorkbook, weeksForAllLoad } from './weeklyLoadExport';
 import { createId, validateSnapshot } from '../model';
 import './plan.css';
 import './weekly_style.css';
@@ -80,12 +81,6 @@ function nameFor(snapshot: Snapshot, kind: 'project' | 'delivery' | 'lane' | 'pe
   if (!id) return 'Не назначено';
   const item = (snapshot.data[COLLECTION[kind]] as { id: string; name: string }[]).find(x => x.id === id);
   return item?.name || 'Удалённый объект';
-}
-function dateForExcel(s?: string) { return s ? new Date(`${s}T12:00:00Z`) : null; }
-function intersectsPeriod(ref: DateReference, from: string, untilExclusive: string): boolean {
-  if (ref.kind === 'exact') return ref.date >= from && ref.date < untilExclusive;
-  if (ref.kind === 'range') return ref.end >= from && ref.start < untilExclusive;
-  return false;
 }
 
 export default function PlanView({ snapshot, onChange, onNavigateToProcess, initialSelection }: PlanViewProps) {
@@ -434,66 +429,25 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     try {
       const ExcelJS = (await import('exceljs')).default;
       const useCurrent = scope === 'current';
-      const pickedBlocks = useCurrent ? filteredBlocks.filter(b => weeks.some(w => w >= b.startWeek && w <= b.endWeek)) : blocks;
-      const pickedAssignments = useCurrent ? filteredAssignments.filter(a => weeks.includes(a.weekStart)) : assignments;
-      const pickedEvents = useCurrent ? visibleEvents.filter(e => weeks.some(w => w >= e.startWeek && w <= (e.endWeek || e.startWeek))) : events;
-      const untilExclusive = addWeeks(origin, weeksCount);
-      const pickedDeliveries = useCurrent ? visibleDeliveries.filter(d => {
-        const references = [d.startDate, d.checkpointDate, d.deadline] as DateReference[];
-        const hasKnownDate = references.some(ref => ref.kind !== 'unknown');
-        const hasIncludedBlock = pickedBlocks.some(b => b.deliveryId === d.id);
-        const hasAnyBlock = blocks.some(b => b.deliveryId === d.id);
-        return references.some(ref => intersectsPeriod(ref, origin, untilExclusive)) || hasIncludedBlock || (!hasKnownDate && !hasAnyBlock);
-      }) : deliveries;
-      const pickedProjects = useCurrent ? visibleProjects.filter(p => pickedDeliveries.some(d => d.projectId === p.id) || pickedBlocks.some(b => b.projectId === p.id) || (!deliveries.some(d => d.projectId === p.id) && !blocks.some(b => b.projectId === p.id))) : projects;
-      const workbook = new ExcelJS.Workbook();
-      workbook.creator = 'Конструктор процессов и планов';
-      workbook.created = new Date();
-      const meta = `Выгрузка: ${new Date().toLocaleString('ru-RU')}; выборка: ${useCurrent ? 'текущая' : 'весь план'}; фильтры: ${useCurrent ? JSON.stringify(filters) : 'нет'}; период: ${useCurrent ? `${origin} — ${weeks.at(-1)}` : 'весь'}`;
-      const objects = workbook.addWorksheet('Объекты плана', { views: [{ state: 'frozen', ySplit: 3 }] });
-      objects.addRow([meta]);
-      objects.addRow([]);
-      const objectHeaders = ['Проект / поток', 'Тип проекта', 'Вид поставки', 'Название поставки', 'Владелец', 'Начало', 'Контрольная дата', 'Срок с', 'Срок по', 'Словесный ориентир', 'Статус', 'Заметка'];
-      objects.addRow(objectHeaders);
-      objects.columns = [24, 17, 17, 26, 22, 17, 20, 17, 17, 25, 19, 34].map(width => ({ width }));
-      for (const p of pickedProjects) {
-        const projectDeliveries = pickedDeliveries.filter(d => d.projectId === p.id);
-        if (!projectDeliveries.length) objects.addRow([p.name, p.type, '', '', '', null, null, null, null, '', p.status, p.notes || '']);
-        for (const d of projectDeliveries) {
-          const deadline = d.deadline as DateReference;
-          objects.addRow([p.name, p.type, d.kind, d.name, d.ownerActorId ? nameFor(snapshot, 'person', d.ownerActorId) : '',
-            d.startDate.kind === 'exact' ? dateForExcel(d.startDate.date) : d.startDate.kind === 'range' ? dateForExcel(d.startDate.start) : null,
-            d.checkpointDate.kind === 'exact' ? dateForExcel(d.checkpointDate.date) : null,
-            deadline.kind === 'exact' ? dateForExcel(deadline.date) : deadline.kind === 'range' ? dateForExcel(deadline.start) : null,
-            deadline.kind === 'range' ? dateForExcel(deadline.end) : null, deadline.text || '', d.status, d.note]);
-        }
-      }
-      const weekly = workbook.addWorksheet('Недельный план', { views: [{ state: 'frozen', ySplit: 3 }] });
-      weekly.addRow([meta]); weekly.addRow([]);
-      weekly.addRow(['Проект / поток', 'Поставка', 'Дорожка', 'Человек', 'Неделя начала', 'Неделя конца', 'Содержание', 'Статус', 'Заметка', 'Тип события']);
-      weekly.columns = [24, 25, 23, 22, 18, 18, 38, 18, 34, 18].map(width => ({ width }));
-      for (const b of pickedBlocks) weekly.addRow([nameFor(snapshot, 'project', b.projectId), b.deliveryId ? nameFor(snapshot, 'delivery', b.deliveryId) : '', nameFor(snapshot, 'lane', b.laneId), b.personId ? nameFor(snapshot, 'person', b.personId) : 'Не назначено', dateForExcel(b.startWeek), dateForExcel(b.endWeek), b.content, b.status, b.note, '']);
-      for (const e of pickedEvents) weekly.addRow([e.projectId ? nameFor(snapshot, 'project', e.projectId) : '', '', '', e.actorId ? nameFor(snapshot, 'person', e.actorId) : '', dateForExcel(e.startWeek), dateForExcel(e.endWeek || e.startWeek), e.text, '', '', e.type]);
-      const tasks = workbook.addWorksheet('Недельные задачи', { views: [{ state: 'frozen', ySplit: 3 }] });
-      tasks.addRow([meta]); tasks.addRow([]);
-      tasks.addRow(['Неделя', 'Человек', 'Проект', 'Поставка', 'Задача или пакет', 'Количество', 'Выполнено', 'Заметка']);
-      tasks.columns = [18, 24, 27, 27, 42, 16, 18, 40].map(width => ({ width }));
-      for (const a of pickedAssignments) tasks.addRow([dateForExcel(a.weekStart), a.personId ? nameFor(snapshot, 'person', a.personId) : 'Не назначено', nameFor(snapshot, 'project', a.projectId), a.deliveryId ? nameFor(snapshot, 'delivery', a.deliveryId) : '', a.title, a.count, a.count === null ? a.completed ? 'Да' : 'Нет' : a.completedCount ?? 0, a.note]);
-      tasks.addRow([]); tasks.addRow(['Итоги по человеку']);
-      for (const id of [...new Set(pickedAssignments.map(a => a.personId || ''))]) { const items = pickedAssignments.filter(a => (a.personId || '') === id); tasks.addRow(['', id ? nameFor(snapshot, 'person', id) : 'Не назначено', '', '', '', items.reduce((n, a) => n + (a.count ?? 0), 0), items.reduce((n, a) => n + (a.completedCount ?? 0), 0)]); }
-      tasks.addRow([]); tasks.addRow(['Итоги по проекту']);
-      for (const id of [...new Set(pickedAssignments.map(a => a.projectId))]) { const items = pickedAssignments.filter(a => a.projectId === id); tasks.addRow(['', '', nameFor(snapshot, 'project', id), '', '', items.reduce((n, a) => n + (a.count ?? 0), 0), items.reduce((n, a) => n + (a.completedCount ?? 0), 0)]); }
-      tasks.addRow(['Всего задач с количеством', '', '', '', '', pickedAssignments.reduce((n, a) => n + (a.count ?? 0), 0), pickedAssignments.reduce((n, a) => n + (a.completedCount ?? 0), 0)]);
-      tasks.addRow(['Записей без количества', '', '', '', '', pickedAssignments.filter(a => a.count === null).length]);
-      for (const sheet of [objects, weekly, tasks]) {
-        const header = sheet.getRow(3); header.font = { bold: true, color: { argb: 'FFFFFFFF' } }; header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } }; header.height = 27;
-        sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(3, sheet.rowCount), column: sheet.columnCount } };
-        sheet.eachRow((r, number) => { if (number > 3) { r.alignment = { vertical: 'top', wrapText: true }; r.height = 31; r.eachCell(c => { if (c.value instanceof Date) c.numFmt = 'dd.mm.yyyy'; }); } });
-      }
+      const exportAssignments = useCurrent ? filteredAssignments.filter(task => weeks.includes(task.weekStart)) : assignments;
+      const exportBlocks = useCurrent ? filteredBlocks.filter(block => weeks.some(week => week >= block.startWeek && week <= block.endWeek)) : blocks;
+      const exportWeeks = useCurrent ? weeks : weeksForAllLoad(assignments, blocks, weeks);
+      const workbook = createWeeklyLoadWorkbook(new ExcelJS.Workbook(), {
+        projects: useCurrent ? visibleProjects : projects,
+        deliveries: useCurrent ? visibleDeliveries : deliveries,
+        assignments: exportAssignments,
+        blocks: exportBlocks,
+        people,
+        weeks: exportWeeks,
+        scopeLabel: useCurrent ? 'Текущая выборка' : 'Весь план',
+      });
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `plan-${scope}-${iso(new Date())}.xlsx`; anchor.click();
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `plan-zagruzka-${scope}-${iso(new Date())}.xlsx`;
+      anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setMessage(`Экспортирован файл ${anchor.download}.`);
     } catch (error) { setMessage(`Не удалось создать XLSX: ${error instanceof Error ? error.message : String(error)}`); }

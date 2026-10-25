@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeftRight, Database, Download, FolderKanban, GitBranch, RotateCcw, Shapes, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, CalendarDays, Database, Download, FolderKanban, GitBranch, RotateCcw, Shapes, Upload, X } from 'lucide-react';
 import { createBackup, getRollbackSnapshot, getSnapshotSummary, loadSnapshot, parseBackup, restoreBackup, rollbackRestore, saveSnapshot, validateSnapshot, type ImportPreview, type Snapshot } from './model';
 import { ProcessView } from './process';
 import { PlanView } from './plan';
 import { CanvasView } from './canvas';
+import { PersonalView } from './personal';
 import './style.css';
 
-type Page = 'process' | 'plan' | 'canvas';
+type Page = 'process' | 'plan' | 'canvas' | 'personal';
 
 function downloadBlob(name: string, value: Blob) {
   const url = URL.createObjectURL(value);
@@ -21,6 +22,7 @@ function downloadBlob(name: string, value: Blob) {
 const summaryLabels: Record<string, string> = {
   groups: 'Группы', processes: 'Процессы', actors: 'Участники',
   projects: 'Проекты', deliveries: 'Поставки', weekBlocks: 'Недельные блоки', weeklyAssignments: 'Недельные задачи',
+  personalTasks: 'Личные задачи',
   canvasZones: 'Зоны схемы', canvasNodes: 'Карточки схемы', canvasEdges: 'Связи схемы',
 };
 
@@ -121,12 +123,12 @@ function App() {
   return <div className="app-shell">
     <header className="app-header">
       <div className="brand"><span className="brand-symbol"><ArrowLeftRight size={18} /></span><div><strong>{snapshot.workspace.name}</strong><small>Конструктор процессов и планов</small></div></div>
-      <nav className="main-nav" aria-label="Разделы"><button className={page === 'process' ? 'active' : ''} onClick={() => { setPage('process'); setTarget(undefined); }}><GitBranch size={16}/>Карта процессов</button><button className={page === 'plan' ? 'active' : ''} onClick={() => { setPage('plan'); setTarget(undefined); }}><FolderKanban size={16}/>План проектов</button><button className={page === 'canvas' ? 'active' : ''} onClick={() => { setPage('canvas'); setTarget(undefined); }}><Shapes size={16}/>Схема</button></nav>
+      <nav className="main-nav" aria-label="Разделы"><button className={page === 'process' ? 'active' : ''} onClick={() => { setPage('process'); setTarget(undefined); }}><GitBranch size={16}/>Карта процессов</button><button className={page === 'plan' ? 'active' : ''} onClick={() => { setPage('plan'); setTarget(undefined); }}><FolderKanban size={16}/>План проектов</button><button className={page === 'canvas' ? 'active' : ''} onClick={() => { setPage('canvas'); setTarget(undefined); }}><Shapes size={16}/>Схема</button><button className={page === 'personal' ? 'active' : ''} onClick={() => { setPage('personal'); setTarget(undefined); }}><CalendarDays size={16}/>Мои задачи</button></nav>
       <div className="header-actions">{needsBackup && <button className="quiet-button backup-shortcut" onClick={backup} disabled={busy}><Download size={15}/> Скачать копию</button>}<div className="data-menu"><button className="quiet-button" aria-expanded={dataOpen} onClick={() => setDataOpen(value => !value)}><Database size={16}/> Данные</button>{dataOpen && <div className="menu-popover"><button onClick={backup} disabled={busy}><Download size={15}/> Скачать JSON-копию</button><button onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={15}/> Восстановить из JSON</button>{rollbackAvailable && <button onClick={rollback} disabled={busy}><RotateCcw size={15}/> Вернуть состояние до восстановления</button>}</div>}</div><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={event => readFile(event.target.files?.[0])}/></div>
     </header>
     {message && <div role="status" className="global-message"><span>{message}</span><button aria-label="Закрыть сообщение" onClick={() => setMessage('')}><X size={15}/></button></div>}
-    <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : page === 'plan' ? <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/> : <CanvasView snapshot={snapshot} onChange={change}/>}</main>
-    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Копия полностью заменит данные карты процессов, плана проектов и схемы. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
+    <main className="app-main">{page === 'process' ? <ProcessView snapshot={snapshot} onChange={change} onNavigateToPlan={(id) => {setPage('plan'); setTarget(id);}} initialSelection={target}/> : page === 'plan' ? <PlanView snapshot={snapshot} onChange={change} onNavigateToProcess={(id) => {setPage('process'); setTarget(id);}} initialSelection={target}/> : page === 'canvas' ? <CanvasView snapshot={snapshot} onChange={change}/> : <PersonalView snapshot={snapshot} onChange={change}/>}</main>
+    {preview && <div className="modal-backdrop" role="presentation"><div className="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title"><div className="modal-heading"><div><small>Проверка файла</small><h2 id="restore-title">Восстановить пространство?</h2></div><button aria-label="Закрыть" onClick={() => setPreview(null)}><X size={18}/></button></div><p className="warning-text">Копия полностью заменит данные карты процессов, плана проектов, схемы и личных задач. Объединения данных нет.</p><p className="muted">Копия создана: {new Date(preview.backup.exportedAt).toLocaleString('ru-RU')}</p><div className="restore-columns"><Summary title="Из файла" snapshot={{workspace: preview.backup.workspace, data: preview.backup.data}}/><Summary title="Сейчас" snapshot={snapshot}/></div><div className="modal-actions"><button className="quiet-button" onClick={backup}><Download size={15}/> Сначала скачать текущую копию</button><button className="quiet-button" onClick={() => setPreview(null)}>Отмена</button><button className="danger-button" disabled={busy} onClick={restore}>Заменить рабочее пространство</button></div></div></div>}
   </div>;
 }
 
