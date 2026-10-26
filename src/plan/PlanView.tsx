@@ -446,7 +446,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `plan-zagruzka-${scope}-${iso(new Date())}.xlsx`;
+      anchor.download = `plan-testirovanie-${scope}-${iso(new Date())}.xlsx`;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setMessage(`Экспортирован файл ${anchor.download}.`);

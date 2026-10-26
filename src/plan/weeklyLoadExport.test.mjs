@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
 const { createWeeklyLoadWorkbook, weeksForAllLoad } = await import(`data:text/javascript,${encodeURIComponent(compiled)}`);
 
 const project = (id, name, order) => ({ id, name, order });
-const delivery = (id, projectId, name) => ({ id, projectId, name });
+const delivery = (id, projectId, name) => ({ id, projectId, name, deadline: { kind: 'exact', date: '2026-10-30' }, testingTaskCount: 12, developmentTaskCount: 8 });
 const task = (id, projectId, deliveryId, personId, weekStart, title) => ({ id, projectId, deliveryId, personId, weekStart, title, count: 10, completedCount: 7, note: 'Приватные детали' });
 const block = (id, projectId, deliveryId, personId, startWeek, endWeek, content) => ({ id, projectId, deliveryId, personId, startWeek, endWeek, content, note: 'Заметка', status: 'В работе' });
 
@@ -25,7 +25,7 @@ test('all-plan weeks include the complete span of blocks and assignments', () =>
   assert.deepEqual(weeksForAllLoad([], [], ['2026-11-02']), ['2026-11-02']);
 });
 
-test('XLSX shows project, delivery, person and separate task titles by week without tracking', async () => {
+test('XLSX follows the release grid with weekly employee colors and a legend', async () => {
   const workbook = createWeeklyLoadWorkbook(new ExcelJS.Workbook(), {
     projects: [project('p2', 'Второй проект', 2), project('p1', 'Первый проект', 1)],
     deliveries: [delivery('d1', 'p1', 'Релиз 1')],
@@ -43,21 +43,28 @@ test('XLSX shows project, delivery, person and separate task titles by week with
   const opened = new ExcelJS.Workbook();
   await opened.xlsx.load(bytes);
   assert.equal(opened.worksheets.length, 1);
-  const sheet = opened.worksheets[0];
-  assert.equal(sheet.getRow(4).getCell(1).value, 'Проект');
-  assert.match(sheet.getRow(4).getCell(4).value, /№41/);
+  const sheet = opened.getWorksheet('Тестирование');
+  assert.equal(sheet.getCell('A1').value, 'Проект');
+  assert.equal(sheet.getCell('B1').value, 'Релиз');
+  assert.equal(sheet.getCell('D1').value, 'Уже в тесте');
+  assert.equal(sheet.getCell('E1').value, 'На тест в буд.');
+  assert.ok(sheet.getCell('F1').value instanceof Date);
   const rows = [...sheet._rows].filter(Boolean);
   const firstProject = rows.find(row => row.getCell(1).value === 'Первый проект');
   const secondProject = rows.find(row => row.getCell(1).value === 'Второй проект');
   assert.ok(firstProject.number < secondProject.number);
-  assert.ok(rows.some(row => row.getCell(2).value === 'Релиз 1'));
-  const anna = rows.find(row => row.getCell(3).value === 'Анна');
-  assert.equal(anna.getCell(4).value, 'Подготовить кейсы\nПроверить API');
-  const boris = rows.find(row => row.getCell(3).value === 'Борис');
-  assert.equal(boris.getCell(4).value, 'Блок: Регрессия');
-  assert.equal(boris.getCell(5).value, 'Блок: Регрессия');
-  assert.ok(rows.some(row => row.getCell(2).value === 'Без поставки'));
-  assert.ok(rows.some(row => row.getCell(3).value === 'Не назначено' && row.getCell(5).value === 'Разобрать дефекты'));
+  assert.equal(firstProject.getCell(2).value, 'Релиз 1');
+  assert.equal(firstProject.getCell(4).value, 12);
+  assert.equal(firstProject.getCell(5).value, 8);
+  assert.ok(firstProject.getCell(3).value instanceof Date);
+  assert.equal(firstProject.getCell(6).value, 'Подготовить кейсы\nПроверить API');
+  assert.equal(firstProject.getCell(6).fill.fgColor.argb, 'FFFFC000');
+  assert.equal(sheet.getCell(firstProject.number + 1, 6).value, 'Регрессия');
+  assert.equal(sheet.getCell(firstProject.number + 1, 7).value, 'Регрессия');
+  assert.equal(sheet.getCell(firstProject.number + 1, 6).fill.fgColor.argb, 'FFA8D08D');
+  assert.ok(rows.some(row => row.getCell(2).value === 'Без поставки' && row.getCell(7).value === 'Разобрать дефекты'));
+  assert.ok(rows.some(row => row.getCell(1).value === 'Анна' && row.getCell(1).fill.fgColor.argb === 'FFFFC000'));
+  assert.ok(rows.some(row => row.getCell(1).value === 'Борис' && row.getCell(1).fill.fgColor.argb === 'FFA8D08D'));
   const allText = rows.flatMap(row => row.values).join(' ');
   assert.doesNotMatch(allText, /Приватные детали|Заметка|В работе|Выполнено|7\/10/);
 });

@@ -1,21 +1,23 @@
 import type ExcelJS from 'exceljs';
-import type { Delivery, Project, WeekBlock, WeeklyAssignment } from '../model';
+import type { DateReference, Delivery, Project, WeekBlock, WeeklyAssignment } from '../model';
 
 export type LoadExportInput = {
   projects: Project[];
   deliveries: Delivery[];
   assignments: WeeklyAssignment[];
   blocks: WeekBlock[];
-  people: { id: string; name: string }[];
+  people: { id: string; name: string; color?: string }[];
   weeks: string[];
   scopeLabel: string;
 };
 
 const DAY = 86400000;
-const NAVY = 'FF183153';
-const BLUE = 'FF2255A4';
-const PALE = 'FFEAF2FC';
-const GRID = 'FFDCE5EF';
+const TEXT = 'FF243447';
+const GRID = 'FFD6DEE8';
+const HEADER = 'FFF1F5FA';
+const NO_PERSON = 'FFE8ECF1';
+// First three colors match the employee legend in the reference workbook.
+const PERSON_COLORS = ['FFFFC000', 'FFA8D08D', 'FFBDD6EE', 'FFF4B6C2', 'FFD9C5EF', 'FFB7E1DA', 'FFF7D6A3'];
 
 function shiftedWeek(week: string, amount: number): string {
   const day = new Date(`${week}T12:00:00Z`);
@@ -32,116 +34,127 @@ export function weeksForAllLoad(assignments: WeeklyAssignment[], blocks: WeekBlo
   return Array.from({ length: count }, (_, i) => shiftedWeek(first, i));
 }
 
-function weekLabel(week: string): string {
-  const start = new Date(`${week}T12:00:00Z`);
-  const end = new Date(start.getTime() + 6 * DAY);
-  const monday = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 3, 12));
-  const first = new Date(Date.UTC(monday.getUTCFullYear(), 0, 4, 12));
-  first.setUTCDate(first.getUTCDate() + 3 - (first.getUTCDay() + 6) % 7);
-  const number = 1 + Math.round((monday.getTime() - first.getTime()) / (7 * DAY));
-  const dd = (date: Date) => `${String(date.getUTCDate()).padStart(2, '0')}.${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-  return `№${number} · ${dd(start)}–${dd(end)}`;
+function asExcelDate(date: string): Date {
+  return new Date(`${date}T12:00:00Z`);
 }
 
-/** One readable worksheet: project > delivery > person, with work titles in week cells. */
+function dateText(date: string): string {
+  const [year, month, day] = date.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function releaseDate(ref?: DateReference): Date | string {
+  if (!ref) return '';
+  if (ref.kind === 'exact') return asExcelDate(ref.date);
+  if (ref.kind === 'range') return ref.text?.trim() || `${dateText(ref.start)}–${dateText(ref.end)}`;
+  return ref.text?.trim() || '';
+}
+
+function personFill(color: string | undefined, index: number): string {
+  if (!color || color.toLowerCase() === '#2563eb') return PERSON_COLORS[index % PERSON_COLORS.length];
+  const hex = color.replace(/^#/, '');
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return PERSON_COLORS[index % PERSON_COLORS.length];
+  const channels = [0, 2, 4].map(offset => Math.round(parseInt(hex.slice(offset, offset + 2), 16) * 0.38 + 255 * 0.62));
+  return `FF${channels.map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+/** Release grid like the reference sheet: release fields, weekly work and a color legend. */
 export function createWeeklyLoadWorkbook(workbook: ExcelJS.Workbook, input: LoadExportInput): ExcelJS.Workbook {
   workbook.creator = 'Конструктор процессов и планов';
   workbook.created = new Date();
-  const sheet = workbook.addWorksheet('Загрузка по неделям', {
-    views: [{ state: 'frozen', xSplit: 3, ySplit: 4 }],
+  workbook.subject = input.scopeLabel;
+  const sheet = workbook.addWorksheet('Тестирование', {
+    views: [{ state: 'frozen', xSplit: 5, ySplit: 1, showGridLines: false }],
     pageSetup: { paperSize: 9, orientation: 'landscape' },
   });
-  const lastColumn = input.weeks.length + 3;
-  sheet.columns = [
-    { width: 26 }, { width: 27 }, { width: 23 },
-    ...input.weeks.map(() => ({ width: 34 })),
-  ];
-  sheet.mergeCells(1, 1, 1, lastColumn);
-  const title = sheet.getCell(1, 1);
-  title.value = 'ПЛАН ПРОЕКТОВ · ЗАГРУЗКА ПО НЕДЕЛЯМ';
-  title.font = { name: 'Aptos Display', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-  title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
-  title.alignment = { vertical: 'middle', indent: 1 };
-  sheet.getRow(1).height = 39;
-
-  sheet.mergeCells(2, 1, 2, lastColumn);
-  const subtitle = sheet.getCell(2, 1);
-  subtitle.value = `${input.scopeLabel} · ${input.weeks.length ? `${input.weeks[0]} — ${input.weeks.at(-1)}` : 'без периода'} · Неделя: понедельник–воскресенье`;
-  subtitle.font = { name: 'Aptos', size: 10, color: { argb: NAVY } };
-  subtitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: PALE } };
-  subtitle.alignment = { vertical: 'middle', indent: 1 };
-  sheet.getRow(2).height = 25;
-  sheet.getRow(3).height = 10;
-
-  const header = sheet.getRow(4);
-  header.values = ['Проект', 'Поставка', 'Сотрудник', ...input.weeks.map(weekLabel)];
+  sheet.columns = [{ width: 23 }, { width: 17 }, { width: 20 }, { width: 16 }, { width: 19 }, ...input.weeks.map(() => ({ width: 28 }))];
+  const lastColumn = input.weeks.length + 5;
+  const border: Partial<ExcelJS.Borders> = {
+    top: { style: 'thin', color: { argb: GRID } }, left: { style: 'thin', color: { argb: GRID } },
+    bottom: { style: 'thin', color: { argb: GRID } }, right: { style: 'thin', color: { argb: GRID } },
+  };
+  const header = sheet.addRow(['Проект', 'Релиз', 'Дата выхода', 'Уже в тесте', 'На тест в буд.', ...input.weeks.map(asExcelDate)]);
   header.height = 34;
   header.eachCell(cell => {
-    cell.font = { name: 'Aptos', bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: TEXT } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER } };
+    cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+    cell.border = border;
   });
+  for (let column = 6; column <= lastColumn; column++) header.getCell(column).numFmt = 'dd mmm';
 
   const personNames = new Map(input.people.map(person => [person.id, person.name]));
-  const orderedProjects = [...input.projects].sort((a, b) => a.order - b.order);
-  let employeeStripe = false;
+  const personColors = new Map(input.people.map((person, index) => [person.id, personFill(person.color, index)]));
+  const personOrder = new Map(input.people.map((person, index) => [person.id, index]));
+  const usedPeople = new Set<string>();
 
-  const groupRow = (column: number, label: string, project: boolean) => {
-    const row = sheet.addRow([]);
-    sheet.mergeCells(row.number, column, row.number, lastColumn);
-    const cell = row.getCell(column);
-    cell.value = label;
-    cell.font = { name: 'Aptos', bold: true, size: project ? 11 : 10, color: { argb: project ? 'FFFFFFFF' : NAVY } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: project ? NAVY : PALE } };
-    cell.alignment = { vertical: 'middle', indent: project ? 1 : 2 };
-    row.height = project ? 29 : 25;
-  };
-
-  const workRows = (assignments: WeeklyAssignment[], blocks: WeekBlock[]) => {
-    const personIds = new Set<string>();
-    assignments.forEach(task => personIds.add(task.personId || ''));
-    blocks.forEach(block => personIds.add(block.personId || ''));
-    const sorted = [...personIds].sort((a, b) => (personNames.get(a) || 'Не назначено').localeCompare(personNames.get(b) || 'Не назначено', 'ru'));
-    for (const personId of sorted) {
-      const row = sheet.addRow(['', '', personNames.get(personId) || 'Не назначено']);
-      row.getCell(3).font = { name: 'Aptos', size: 10, bold: true, color: { argb: NAVY } };
-      let lineCount = 1;
-      for (let i = 0; i < input.weeks.length; i++) {
-        const week = input.weeks[i];
+  function addRelease(project: Project, delivery: Delivery | null, assignments: WeeklyAssignment[], blocks: WeekBlock[]) {
+    const ids = new Set<string>([...assignments.map(task => task.personId || ''), ...blocks.map(block => block.personId || '')]);
+    const people = [...ids].sort((a, b) => (personOrder.get(a) ?? Infinity) - (personOrder.get(b) ?? Infinity) || a.localeCompare(b));
+    if (!people.length) people.push('');
+    const firstRow = sheet.rowCount + 1;
+    for (const personId of people) {
+      const row = sheet.addRow([]);
+      row.height = 28;
+      for (let column = 1; column <= lastColumn; column++) {
+        const cell = row.getCell(column);
+        cell.font = { name: 'Calibri', size: 11, color: { argb: TEXT } };
+        cell.alignment = { vertical: 'middle', wrapText: true };
+        cell.border = border;
+      }
+      let maxLines = 1;
+      for (let index = 0; index < input.weeks.length; index++) {
+        const week = input.weeks[index];
         const titles = [
           ...assignments.filter(task => (task.personId || '') === personId && task.weekStart === week).map(task => task.title),
-          ...blocks.filter(block => (block.personId || '') === personId && block.startWeek <= week && block.endWeek >= week).map(block => `Блок: ${block.content}`),
-        ];
+          ...blocks.filter(block => (block.personId || '') === personId && block.startWeek <= week && block.endWeek >= week).map(block => block.content),
+        ].filter(Boolean);
         if (!titles.length) continue;
-        row.getCell(i + 4).value = titles.join('\n');
-        lineCount = Math.max(lineCount, titles.reduce((n, title) => n + Math.max(1, Math.ceil(title.length / 39)), 0));
+        const cell = row.getCell(index + 6);
+        cell.value = titles.join('\n');
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: personId ? personColors.get(personId) || NO_PERSON : NO_PERSON } };
+        maxLines = Math.max(maxLines, titles.reduce((sum, title) => sum + Math.max(1, Math.ceil(title.length / 35)), 0));
+        usedPeople.add(personId);
       }
-      employeeStripe = !employeeStripe;
-      row.height = Math.min(360, Math.max(31, lineCount * 16 + 12));
-      row.eachCell({ includeEmpty: true }, (cell, column) => {
-        cell.alignment = { vertical: 'top', wrapText: true, indent: column === 3 ? 1 : 0 };
-        cell.border = { bottom: { style: 'hair', color: { argb: GRID } } };
-        if (employeeStripe) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F9FC' } };
-      });
+      row.height = Math.min(220, Math.max(28, maxLines * 16 + 10));
     }
-  };
+    const lastRow = sheet.rowCount;
+    for (let column = 1; column <= 5; column++) {
+      if (lastRow > firstRow) sheet.mergeCells(firstRow, column, lastRow, column);
+      const cell = sheet.getCell(firstRow, column);
+      cell.alignment = { vertical: 'middle', wrapText: true };
+      if (column <= 2) cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: TEXT } };
+    }
+    sheet.getCell(firstRow, 1).value = project.name;
+    sheet.getCell(firstRow, 2).value = delivery?.name || (assignments.length || blocks.length ? 'Без поставки' : '');
+    const dateCell = sheet.getCell(firstRow, 3);
+    dateCell.value = releaseDate(delivery?.deadline);
+    if (dateCell.value instanceof Date) dateCell.numFmt = 'dd.mm.yyyy';
+    if (delivery?.testingTaskCount !== undefined) sheet.getCell(firstRow, 4).value = delivery.testingTaskCount;
+    if (delivery?.developmentTaskCount !== undefined) sheet.getCell(firstRow, 5).value = delivery.developmentTaskCount;
+  }
 
-  for (const project of orderedProjects) {
-    groupRow(1, project.name, true);
-    for (const delivery of input.deliveries.filter(item => item.projectId === project.id)) {
-      groupRow(2, delivery.name, false);
-      workRows(input.assignments.filter(task => task.projectId === project.id && task.deliveryId === delivery.id), input.blocks.filter(block => block.projectId === project.id && block.deliveryId === delivery.id));
-    }
-    const directTasks = input.assignments.filter(task => task.projectId === project.id && !task.deliveryId);
+  for (const project of [...input.projects].sort((a, b) => a.order - b.order)) {
+    const deliveries = input.deliveries.filter(item => item.projectId === project.id);
+    for (const delivery of deliveries) addRelease(project, delivery,
+      input.assignments.filter(task => task.projectId === project.id && task.deliveryId === delivery.id),
+      input.blocks.filter(block => block.projectId === project.id && block.deliveryId === delivery.id));
+    const directAssignments = input.assignments.filter(task => task.projectId === project.id && !task.deliveryId);
     const directBlocks = input.blocks.filter(block => block.projectId === project.id && !block.deliveryId);
-    if (directTasks.length || directBlocks.length) {
-      groupRow(2, 'Без поставки', false);
-      workRows(directTasks, directBlocks);
+    if (directAssignments.length || directBlocks.length || !deliveries.length) addRelease(project, null, directAssignments, directBlocks);
+  }
+  if (!input.projects.length) sheet.addRow(['Нет проектов в выбранной области.']);
+  if (usedPeople.size) {
+    sheet.addRow([]).height = 12;
+    sheet.addRow(['Сотрудники']).getCell(1).font = { name: 'Calibri', size: 11, bold: true, color: { argb: TEXT } };
+    for (const personId of [...usedPeople].sort((a, b) => (personOrder.get(a) ?? Infinity) - (personOrder.get(b) ?? Infinity) || a.localeCompare(b))) {
+      const cell = sheet.addRow([personNames.get(personId) || 'Не назначено']).getCell(1);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: personId ? personColors.get(personId) || NO_PERSON : NO_PERSON } };
+      cell.font = { name: 'Calibri', size: 11, color: { argb: TEXT } };
+      cell.alignment = { vertical: 'middle' };
+      cell.border = border;
     }
   }
-  if (!orderedProjects.length) {
-    sheet.addRow(['Нет проектов в выбранной области.']);
-  }
-  sheet.properties.defaultRowHeight = 25;
+  sheet.properties.defaultRowHeight = 28;
   return workbook;
 }
