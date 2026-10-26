@@ -165,6 +165,7 @@ export type PersonalTask = EntityBase & {
   title: string
   note: string
   plannedDate: string
+  plannedTime?: string
   status: 'todo' | 'doing' | 'done'
   completedDate?: string
 }

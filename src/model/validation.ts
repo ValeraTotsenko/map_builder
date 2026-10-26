@@ -226,6 +226,7 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
     string(v.note, `${p}.note`, false)
     if ((v.note as string).length > 4000) fail(`${p}.note`, 'не более 4000 символов')
     date(v.plannedDate, `${p}.plannedDate`)
+    if (v.plannedTime !== undefined && (typeof v.plannedTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v.plannedTime))) fail(`${p}.plannedTime`, 'нужно время ЧЧ:ММ')
     oneOf(v.status, `${p}.status`, ['todo', 'doing', 'done'])
     if (v.completedDate !== undefined) date(v.completedDate, `${p}.completedDate`)
     if (v.status === 'done' && v.completedDate === undefined) fail(`${p}.completedDate`, 'для выполненной задачи укажите дату выполнения')
