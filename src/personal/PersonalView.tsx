@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent, type FormEvent } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import { createId, type PersonalTask, type Snapshot } from '../model'
 import { localDateKey, monthDays, tasksForDay } from './taskCalendar'
 import './personal.css'
@@ -18,16 +18,33 @@ function dateLabel(date: string): string {
   return dayFormat.format(new Date(`${date}T12:00:00`))
 }
 
+function shiftDay(date: string, offset: number): string {
+  const day = new Date(`${date}T12:00:00`)
+  day.setDate(day.getDate() + offset)
+  return localDateKey(day)
+}
+
 export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onChange: (next: Snapshot) => Promise<boolean> }) {
   const [today, setToday] = useState(() => localDateKey(new Date()))
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
-  const [selected, setSelected] = useState<string | null>(() => localDateKey(new Date()))
+  const [selected, setSelected] = useState(() => localDateKey(new Date()))
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
   const [plannedDate, setPlannedDate] = useState(today)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const tasks = snapshot.data.personalTasks
+
+  useEffect(() => {
+    if (!editorOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEditorOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [editorOpen])
 
   useEffect(() => {
     const update = () => {
@@ -48,7 +65,7 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
   }, [today])
 
   const days = useMemo(() => monthDays(month.getFullYear(), month.getMonth()), [month])
-  const dayTasks = selected ? tasksForDay(tasks, selected, today) : []
+  const dayTasks = tasksForDay(tasks, selected, today)
   const carried = tasks.filter(task => task.status !== 'done' && task.plannedDate < today).length
   const current = tasksForDay(tasks, today, today)
   const active = current.filter(task => task.status !== 'done').length
@@ -59,22 +76,33 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
   }
 
   function selectDate(date: string) {
-    setSelected(previous => previous === date ? null : date)
-    setEditingId(null)
-    setTitle(''); setNote(''); setPlannedDate(date < today ? today : date)
+    setSelected(date)
+    setMonth(new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, 1))
+    setCalendarOpen(false)
+    clearEditor(date)
   }
 
   function navigateMonth(offset: number) {
     setMonth(new Date(month.getFullYear(), month.getMonth() + offset, 1))
-    setSelected(null)
+  }
+
+  function openAdd() {
+    clearEditor(selected)
+    setEditorOpen(true)
   }
 
   function startEdit(task: PersonalTask) {
     setEditingId(task.id); setTitle(task.title); setNote(task.note); setPlannedDate(task.plannedDate)
+    setEditorOpen(true)
   }
 
-  function clearEditor() {
-    setEditingId(null); setTitle(''); setNote(''); setPlannedDate(selected && selected > today ? selected : today)
+  function clearEditor(date = selected) {
+    setEditingId(null); setTitle(''); setNote(''); setPlannedDate(date > today ? date : today)
+  }
+
+  function closeEditor() {
+    setEditorOpen(false)
+    clearEditor()
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -87,7 +115,7 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
     } else {
       saveTasks([...tasks, { id: createId(), createdAt: now, updatedAt: now, title: clean, note: note.trim(), plannedDate, status: 'todo' }])
     }
-    clearEditor()
+    closeEditor()
   }
 
   function moveTask(id: string, status: Status) {
@@ -111,7 +139,8 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
       <div className="personal-today-summary"><strong>Сегодня</strong><span>{active} в планах · {completed} сделано</span>{carried > 0 && <small>{carried} перенесено с прошлых дней</small>}</div>
     </div>
     <div className="personal-calendar-panel">
-      <div className="personal-calendar-toolbar"><h2>{monthFormat.format(month)}</h2><div><button type="button" onClick={() => navigateMonth(-1)} aria-label="Предыдущий месяц"><ChevronLeft size={18}/></button><button type="button" onClick={() => { const now = new Date(); setToday(localDateKey(now)); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelected(localDateKey(now)); }} >Сегодня</button><button type="button" onClick={() => navigateMonth(1)} aria-label="Следующий месяц"><ChevronRight size={18}/></button></div></div>
+      <button type="button" className="personal-calendar-toggle" aria-expanded={calendarOpen} onClick={() => setCalendarOpen(open => !open)}><CalendarDays size={17}/><span>Календарь</span><small>{monthFormat.format(month)}</small><ChevronDown className={calendarOpen ? 'open' : ''} size={17}/></button>
+      {calendarOpen && <><div className="personal-calendar-toolbar"><h2>{monthFormat.format(month)}</h2><div><button type="button" onClick={() => navigateMonth(-1)} aria-label="Предыдущий месяц"><ChevronLeft size={18}/></button><button type="button" onClick={() => selectDate(today)}>Сегодня</button><button type="button" onClick={() => navigateMonth(1)} aria-label="Следующий месяц"><ChevronRight size={18}/></button></div></div>
       <div className="personal-calendar" aria-label="Календарь личных задач">
         {weekdays.map(day => <div className="personal-weekday" key={day}>{day}</div>)}
         {days.map(day => {
@@ -122,15 +151,15 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
             <span className="personal-day-number">{Number(day.date.slice(-2))}</span><span className="personal-day-counts">{pending > 0 && <span className="personal-count pending">{pending} дел</span>}{done > 0 && <span className="personal-count done">{done} готово</span>}</span>
           </button>
         })}
-      </div>
+      </div></>}
     </div>
-    {selected ? <div className="personal-board-panel">
-      <div className="personal-board-heading"><div><small>Доска дня</small><h2>{dateLabel(selected)}</h2><p>{dayTasks.length} задач{selected === today && carried > 0 ? ` · ${carried} перенесено` : ''}</p></div><button type="button" className="personal-close" onClick={() => setSelected(null)} aria-label="Свернуть доску"><X size={18}/></button></div>
-      <form className="personal-editor" onSubmit={submit}><div className="personal-editor-fields"><label>Задача<input value={title} onChange={event => setTitle(event.target.value)} placeholder="Что нужно сделать?" maxLength={200} required/></label><label>Дата<input type="date" value={plannedDate} onChange={event => setPlannedDate(event.target.value)} required/></label><label className="personal-note">Заметка<input value={note} onChange={event => setNote(event.target.value)} placeholder="Необязательно" maxLength={4000}/></label></div><div className="personal-editor-actions"><button className="personal-primary" type="submit"><Plus size={15}/>{editingId ? 'Сохранить' : 'Добавить задачу'}</button>{editingId && <button type="button" onClick={clearEditor}>Отмена</button>}</div></form>
+    <div className="personal-board-panel">
+      <div className="personal-board-heading"><div><small>Доска дня</small><h2>{dateLabel(selected)}</h2><p>{dayTasks.length} задач{selected === today && carried > 0 ? ` · ${carried} перенесено` : ''}</p></div><div className="personal-board-actions"><button type="button" onClick={() => selectDate(shiftDay(selected, -1))} aria-label="Предыдущий день"><ChevronLeft size={17}/></button><button type="button" onClick={() => selectDate(today)}>Сегодня</button><button type="button" onClick={() => selectDate(shiftDay(selected, 1))} aria-label="Следующий день"><ChevronRight size={17}/></button><button type="button" className="personal-primary" onClick={openAdd}><Plus size={16}/>Добавить задачу</button></div></div>
       <div className="personal-board">{columns.map(column => {
         const items = dayTasks.filter(task => task.status === column.status).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         return <section className={`personal-column ${column.status}`} key={column.status} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, column.status)} aria-label={column.title}><h3>{column.title}<span>{items.length}</span></h3><div className="personal-cards">{items.length === 0 && <p className="personal-empty">Пока пусто</p>}{items.map(task => <article className="personal-card" key={task.id} draggable onDragStart={event => { setDragId(task.id); event.dataTransfer.setData('text/plain', task.id); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragId(null)}><button type="button" className="personal-card-title" onClick={() => startEdit(task)} title="Редактировать задачу">{task.title}</button>{task.note && <p>{task.note}</p>}{task.plannedDate < today && task.status !== 'done' && <small className="personal-overdue">С {dateLabel(task.plannedDate)}</small>}<div className="personal-card-footer"><label>Статус<select value={task.status} onChange={event => moveTask(task.id, event.target.value as Status)} aria-label={`Статус: ${task.title}`}>{columns.map(item => <option value={item.status} key={item.status}>{item.title}</option>)}</select></label><button type="button" className="personal-delete" onClick={() => { if (window.confirm(`Удалить задачу «${task.title}»?`)) saveTasks(tasks.filter(item => item.id !== task.id)) }} aria-label={`Удалить: ${task.title}`}><Trash2 size={15}/></button></div></article>)}</div></section>
       })}</div>
-    </div> : <div className="personal-collapsed">Выберите день в календаре, чтобы открыть доску задач.</div>}
+    </div>
+    {editorOpen && <div className="personal-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor() }}><div className="personal-modal" role="dialog" aria-modal="true" aria-labelledby="personal-modal-title"><div className="personal-modal-heading"><div><small>{editingId ? 'Редактирование задачи' : 'Новая задача'}</small><h2 id="personal-modal-title">{editingId ? 'Изменить задачу' : 'Добавить задачу'}</h2></div><button type="button" onClick={closeEditor} aria-label="Закрыть окно"><X size={18}/></button></div><form onSubmit={submit} className="personal-modal-form"><label>Название задачи<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Что нужно сделать?" maxLength={200} required/></label><label>Дата<input type="date" value={plannedDate} onChange={event => setPlannedDate(event.target.value)} required/></label><label>Описание и заметки<textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Контекст, шаги или ссылки" maxLength={4000} rows={6}/></label><div className="personal-modal-actions"><button type="button" onClick={closeEditor}>Отмена</button><button type="submit" className="personal-primary">{editingId ? 'Сохранить' : 'Добавить задачу'}</button></div></form></div></div>}
   </section>
 }
