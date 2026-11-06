@@ -1,6 +1,6 @@
 import { BACKUP_FORMAT, SCHEMA_VERSION, createEmptyCanvas, createEmptySnapshot, getSnapshotSummary } from './index'
 import type { Backup, ImportPreview, Snapshot, SnapshotSummary } from './index'
-import { validateLegacySnapshot, validateSnapshot, validateV2Snapshot, validateV3Snapshot } from './validation'
+import { validateLegacySnapshot, validateSnapshot, validateV2Snapshot, validateV3Snapshot, validateV4Snapshot } from './validation'
 
 const DB_NAME = 'process-planner-workspace-v1'
 const STORE = 'snapshots'
@@ -82,24 +82,30 @@ export function migrateSnapshot(value: unknown): Snapshot {
   const raw = value as { data?: Record<string, unknown> } | null
   if (raw?.data && !('canvas' in raw.data) && !('canvasZones' in raw.data) && !('canvasNodes' in raw.data) && !('canvasEdges' in raw.data)) {
     validateLegacySnapshot(value)
-    const old = value as Omit<Snapshot, 'data'> & { data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges'> }
+    const old = value as Omit<Snapshot, 'data'> & { data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges' | 'weeklyAssignments' | 'personalTasks' | 'flowKitDocuments'> }
     const canvas = createEmptyCanvas()
     const migrated: Snapshot = {
       workspace: old.workspace,
-      data: { ...old.data, canvas, canvasZones: [], canvasNodes: [], canvasEdges: [], weeklyAssignments: [], personalTasks: [] },
+      data: { ...old.data, canvas, canvasZones: [], canvasNodes: [], canvasEdges: [], weeklyAssignments: [], personalTasks: [], flowKitDocuments: [] },
     }
     validateSnapshot(migrated)
     return migrated
   }
   if (raw?.data && !('weeklyAssignments' in raw.data)) {
     validateV2Snapshot(value)
-    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, weeklyAssignments: [], personalTasks: [] } }
+    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, weeklyAssignments: [], personalTasks: [], flowKitDocuments: [] } }
     validateSnapshot(migrated)
     return migrated
   }
   if (raw?.data && !('personalTasks' in raw.data)) {
     validateV3Snapshot(value)
-    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, personalTasks: [] } }
+    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, personalTasks: [], flowKitDocuments: [] } }
+    validateSnapshot(migrated)
+    return migrated
+  }
+  if (raw?.data && !('flowKitDocuments' in raw.data)) {
+    validateV4Snapshot(value)
+    const migrated = { ...(value as Snapshot), data: { ...(value as Snapshot).data, flowKitDocuments: [] } }
     validateSnapshot(migrated)
     return migrated
   }
@@ -109,18 +115,19 @@ export function migrateSnapshot(value: unknown): Snapshot {
 
 type LegacyBackup = Omit<Backup, 'schemaVersion' | 'data'> & {
   schemaVersion: 1
-  data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges' | 'weeklyAssignments' | 'personalTasks'>
+  data: Omit<Snapshot['data'], 'canvas' | 'canvasZones' | 'canvasNodes' | 'canvasEdges' | 'weeklyAssignments' | 'personalTasks' | 'flowKitDocuments'>
 }
 
-type V2Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 2; data: Omit<Snapshot['data'], 'weeklyAssignments' | 'personalTasks'> }
-type V3Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 3; data: Omit<Snapshot['data'], 'personalTasks'> }
+type V2Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 2; data: Omit<Snapshot['data'], 'weeklyAssignments' | 'personalTasks' | 'flowKitDocuments'> }
+type V3Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 3; data: Omit<Snapshot['data'], 'personalTasks' | 'flowKitDocuments'> }
+type V4Backup = Omit<Backup, 'schemaVersion' | 'data'> & { schemaVersion: 4; data: Omit<Snapshot['data'], 'flowKitDocuments'> }
 
-export function validateBackup(value: unknown): asserts value is Backup | LegacyBackup | V2Backup | V3Backup {
+export function validateBackup(value: unknown): asserts value is Backup | LegacyBackup | V2Backup | V3Backup | V4Backup {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('JSON-копия должна быть объектом')
   const raw = value as Record<string, unknown>
   if (raw.format !== BACKUP_FORMAT) throw new Error(`Неверный идентификатор формата: ожидается ${BACKUP_FORMAT}`)
   if (!Number.isInteger(raw.schemaVersion)) throw new Error('Отсутствует целая версия схемы')
-  if (raw.schemaVersion !== SCHEMA_VERSION && raw.schemaVersion !== 1 && raw.schemaVersion !== 2 && raw.schemaVersion !== 3) {
+  if (raw.schemaVersion !== SCHEMA_VERSION && raw.schemaVersion !== 1 && raw.schemaVersion !== 2 && raw.schemaVersion !== 3 && raw.schemaVersion !== 4) {
     if ((raw.schemaVersion as number) > SCHEMA_VERSION) throw new Error(`Копия создана в более новой версии схемы (${raw.schemaVersion}); поддерживается ${SCHEMA_VERSION}`)
     throw new Error(`Версия схемы ${raw.schemaVersion} не поддерживается: миграция не реализована`)
   }
@@ -130,6 +137,7 @@ export function validateBackup(value: unknown): asserts value is Backup | Legacy
   if (raw.schemaVersion === 1) validateLegacySnapshot(value)
   else if (raw.schemaVersion === 2) validateV2Snapshot(value)
   else if (raw.schemaVersion === 3) validateV3Snapshot(value)
+  else if (raw.schemaVersion === 4) validateV4Snapshot(value)
   else validateSnapshot(value)
 }
 
@@ -183,7 +191,7 @@ export async function parseBackup(json: string): Promise<ImportPreview> {
  * Saves the previous state and replaces the entire workspace in one IDB
  * readwrite transaction. Failure aborts both writes; no partial restore.
  */
-export async function restoreBackup(backup: Backup | LegacyBackup | V2Backup | V3Backup): Promise<Snapshot> {
+export async function restoreBackup(backup: Backup | LegacyBackup | V2Backup | V3Backup | V4Backup): Promise<Snapshot> {
   const normalized = normalizeBackup(backup)
   const db = await openDb()
   try {

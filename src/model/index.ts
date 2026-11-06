@@ -5,7 +5,7 @@
  */
 
 export const BACKUP_FORMAT = 'process-planner-workspace' as const
-export const SCHEMA_VERSION = 4 as const
+export const SCHEMA_VERSION = 5 as const
 
 export type EntityBase = {
   id: string
@@ -223,11 +223,17 @@ export type CanvasEdge = EntityBase & {
   arrow: 'forward' | 'reverse' | 'none'
 }
 
+export type FlowKitDocument = EntityBase & {
+  title: string
+  html: string
+}
+
 export type WorkspaceData = {
   canvas: Canvas
   canvasZones: CanvasZone[]
   canvasNodes: CanvasNode[]
   canvasEdges: CanvasEdge[]
+  flowKitDocuments: FlowKitDocument[]
   groups: Group[]
   processes: Process[]
   stages: Stage[]
@@ -268,6 +274,7 @@ export type SnapshotSummary = {
   canvasZones: number
   canvasNodes: number
   canvasEdges: number
+  flowKitDocuments: number
 }
 
 export type ImportPreview = {
@@ -292,7 +299,7 @@ export function createEmptySnapshot(name = 'Рабочее пространст�
       display: { processScale: 'month', planScale: 'week' },
     },
     data: {
-      canvas: createEmptyCanvas(now), canvasZones: [], canvasNodes: [], canvasEdges: [],
+      canvas: createEmptyCanvas(now), canvasZones: [], canvasNodes: [], canvasEdges: [], flowKitDocuments: [],
       groups: [], processes: [], stages: [], checkpoints: [],
       sharedMilestones: [], dependencies: [], actors: [], participations: [],
       handovers: [], projects: [], deliveries: [], lanes: [], weekBlocks: [], weeklyAssignments: [], personalTasks: [],
@@ -319,6 +326,7 @@ export function getSnapshotSummary(snapshot: Snapshot): SnapshotSummary {
     canvasZones: snapshot.data.canvasZones.length,
     canvasNodes: snapshot.data.canvasNodes.length,
     canvasEdges: snapshot.data.canvasEdges.length,
+    flowKitDocuments: snapshot.data.flowKitDocuments.length,
   }
 }
 

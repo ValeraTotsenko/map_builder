@@ -23,7 +23,7 @@ function snapshot() {
     },
     data: {
       canvas: { ...base('canvas'), name: 'Схема', viewport: { x: 0, y: 0, zoom: 1 } },
-      canvasZones: [], canvasNodes: [], canvasEdges: [],
+      canvasZones: [], canvasNodes: [], canvasEdges: [], flowKitDocuments: [],
       groups: [], processes: [{ ...base('process'), name: 'Процесс', currentState: '', targetState: '', reason: '', expectedResult: '', status: 'planned', order: 0 }],
       stages: [{ ...base('stage'), processId: 'process', name: 'Этап', purpose: '', plannedStart: exact('2026-10-19'), plannedEnd: exact('2026-10-30'), expectedOutput: '', status: 'planned', order: 0 }],
       checkpoints: [], sharedMilestones: [], dependencies: [], actors: [], participations: [], handovers: [],

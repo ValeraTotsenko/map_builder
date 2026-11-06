@@ -87,7 +87,7 @@ function ref(id: unknown, path: string, ids: Set<string>, nullable = false): voi
 }
 
 /** Throws a user-readable error for malformed, incompatible or dangling data. */
-function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = false, legacyPersonal = false): void {
+function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = false, legacyPersonal = false, legacyFlowKit = false): void {
   const root = object(value, 'snapshot')
   const workspace = object(root.workspace, 'workspace')
   const data = object(root.data, 'data')
@@ -233,6 +233,13 @@ function validateSnapshotShape(value: unknown, legacy = false, legacyWeekly = fa
     if (v.status !== 'done' && v.completedDate !== undefined) fail(`${p}.completedDate`, 'дата выполнения допустима только для выполненной задачи')
   })
 
+  if (!legacyFlowKit) collection(data, 'flowKitDocuments', ids, (v, p) => {
+    string(v.title, `${p}.title`)
+    if ((v.title as string).length > 200) fail(`${p}.title`, 'не более 200 символов')
+    string(v.html, `${p}.html`)
+    if ((v.html as string).length > 2_000_000) fail(`${p}.html`, 'файл слишком большой')
+  })
+
   if (!legacy) {
     const zones = collection(data, 'canvasZones', ids, (v, p) => {
       string(v.name, `${p}.name`); string(v.color, `${p}.color`)
@@ -358,15 +365,20 @@ export function validateSnapshot(value: unknown): asserts value is Snapshot {
 
 /** Validates the original workspace before adding an empty canvas. */
 export function validateLegacySnapshot(value: unknown): void {
-  validateSnapshotShape(value, true, true, true)
+  validateSnapshotShape(value, true, true, true, true)
 }
 
 /** Validates a version 2 workspace before adding weekly assignments. */
 export function validateV2Snapshot(value: unknown): void {
-  validateSnapshotShape(value, false, true, true)
+  validateSnapshotShape(value, false, true, true, true)
 }
 
 /** Version 3 had weekly assignments but no personal task calendar. */
 export function validateV3Snapshot(value: unknown): void {
-  validateSnapshotShape(value, false, false, true)
+  validateSnapshotShape(value, false, false, true, true)
+}
+
+/** Version 4 had personal tasks but no saved Flow Kit documents. */
+export function validateV4Snapshot(value: unknown): void {
+  validateSnapshotShape(value, false, false, false, true)
 }

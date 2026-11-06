@@ -36,15 +36,16 @@ test('v1 local snapshot migrates to empty canvas and retains roadmap and plan', 
   assert.equal(migrateSnapshot(migrated), migrated)
 })
 
-test('v1 backup normalizes to v4 while preserving the original sections', () => {
+test('v1 backup normalizes to v5 while preserving the original sections', () => {
   const old = legacy()
   const normalized = normalizeBackup({ format: 'process-planner-workspace', schemaVersion: 1, exportedAt: instant, ...old })
-  assert.equal(normalized.schemaVersion, 4)
+  assert.equal(normalized.schemaVersion, 5)
   assert.equal(normalized.exportedAt, instant)
   assert.deepEqual(normalized.data.processes, old.data.processes)
   assert.deepEqual(normalized.data.projects, old.data.projects)
   assert.deepEqual(normalized.data.canvasEdges, [])
   assert.deepEqual(normalized.data.personalTasks, [])
+  assert.deepEqual(normalized.data.flowKitDocuments, [])
 })
 
 test('v3 local snapshot and backup gain empty personal tasks without changing existing data', () => {
@@ -56,7 +57,7 @@ test('v3 local snapshot and backup gain empty personal tasks without changing ex
   assert.deepEqual(migrated.data.weeklyAssignments, old.data.weeklyAssignments)
   assert.deepEqual(migrated.data.projects, old.data.projects)
   const normalized = normalizeBackup({ format: 'process-planner-workspace', schemaVersion: 3, exportedAt: instant, ...old })
-  assert.equal(normalized.schemaVersion, 4)
+  assert.equal(normalized.schemaVersion, 5)
   assert.deepEqual(normalized.data.weeklyAssignments, old.data.weeklyAssignments)
   assert.deepEqual(normalized.data.personalTasks, [])
 })
