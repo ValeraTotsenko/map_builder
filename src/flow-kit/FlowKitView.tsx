@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
-import { Download, FileUp, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, FileUp, Maximize2, Minus, Plus, Trash2 } from 'lucide-react';
 import type { FlowKitDocument, Snapshot } from '../model';
+import { viewerBridge } from './viewerBridge';
 import './flow-kit.css';
 
 type Props = { snapshot: Snapshot; onChange: (next: Snapshot) => Promise<boolean> };
@@ -29,8 +30,20 @@ export function FlowKitView({ snapshot, onChange }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const input = useRef<HTMLInputElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
   const selected = documents.find(item => item.id === selectedId) ?? documents.at(-1);
+
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.source === frame.current?.contentWindow && event.data?.type === 'flowkit:zoom' && typeof event.data.value === 'number') setZoom(event.data.value);
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, []);
+
+  const viewerAction = (action: string, direction?: number) => frame.current?.contentWindow?.postMessage({ type: 'flowkit:viewer', action, direction }, '*');
 
   const importFile = async (file?: File) => {
     if (!file) return;
@@ -63,6 +76,6 @@ export function FlowKitView({ snapshot, onChange }: Props) {
       {error && <p className="flowkit-error" role="alert">{error}</p>}
       <div className="flowkit-list">{documents.map(item => <button key={item.id} className={`flowkit-list-item ${selected?.id === item.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}><strong>{item.title}</strong><small>{new Date(item.createdAt).toLocaleDateString('ru-RU')}</small></button>)}</div>
     </aside>
-    <div className="flowkit-main">{selected ? <><div className="flowkit-toolbar"><div><span className="flowkit-eyebrow">Просмотр схемы</span><h2>{selected.title}</h2></div><div className="flowkit-actions"><button className="quiet-button" onClick={() => download(selected)}><Download size={16}/> HTML</button><button className="quiet-button" onClick={() => remove(selected)} aria-label="Удалить схему"><Trash2 size={16}/></button></div></div><iframe key={selected.id} title={selected.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={VIEW_CSP + selected.html}/></> : <div className="flowkit-empty"><FileUp size={34}/><h2>Здесь появятся готовые схемы</h2><p>Импортируйте <code>flow.html</code>, созданный скиллом Flow Kit.</p><button className="flowkit-import" onClick={() => input.current?.click()}>Импортировать схему</button></div>}</div>
+    <div className="flowkit-main">{selected ? <><div className="flowkit-toolbar"><div><span className="flowkit-eyebrow">Просмотр схемы</span><h2>{selected.title}</h2></div><div className="flowkit-actions"><div className="flowkit-zoom" role="group" aria-label="Масштаб схемы"><button onClick={() => viewerAction('step', -1)} aria-label="Уменьшить масштаб" title="Уменьшить"><Minus size={16}/></button><button className="flowkit-zoom-value" onClick={() => viewerAction('reset')} title="Вернуть 100%">{Math.round(zoom * 100)}%</button><button onClick={() => viewerAction('step', 1)} aria-label="Увеличить масштаб" title="Увеличить"><Plus size={16}/></button><button onClick={() => viewerAction('fit')} aria-label="Показать всю схему" title="Вся схема"><Maximize2 size={16}/></button></div><button className="quiet-button" onClick={() => download(selected)}><Download size={16}/> HTML</button><button className="quiet-button" onClick={() => remove(selected)} aria-label="Удалить схему"><Trash2 size={16}/></button></div></div><iframe ref={frame} key={selected.id} title={selected.title} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={() => { setZoom(1); viewerAction('report'); }} srcDoc={VIEW_CSP + selected.html + viewerBridge}/></> : <div className="flowkit-empty"><FileUp size={34}/><h2>Здесь появятся готовые схемы</h2><p>Импортируйте <code>flow.html</code>, созданный скиллом Flow Kit.</p><button className="flowkit-import" onClick={() => input.current?.click()}>Импортировать схему</button></div>}</div>
   </section>;
 }
