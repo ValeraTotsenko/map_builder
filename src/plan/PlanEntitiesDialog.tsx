@@ -49,7 +49,7 @@ export default function PlanEntitiesDialog({ snapshot, active, onSelect, onOpen,
         <div className="plan-catalog-list-head"><strong>{tabs.find(tab => tab.kind === active)?.label}</strong>{active !== 'assignment' && <button className="plan-primary" onClick={() => onAdd(active)}>+ Добавить</button>}</div>
         {!list.length && <p className="plan-catalog-empty">Пока нет объектов этого типа.</p>}
         <div className="plan-catalog-list">{list.map(item => <div className="plan-catalog-item" key={item.id}>
-          {active === 'person' && <span className="plan-catalog-color" style={{ background: 'color' in item ? item.color || '#2563eb' : '#2563eb' }} />}
+          {active === 'person' && <span className="plan-catalog-color" style={{ background: 'color' in item ? item.color || '#1f6f5c' : '#1f6f5c' }} />}
           <div><strong>{label(item)}</strong><small>{detail(item)}</small>{active === 'person' && <small>{d.weeklyAssignments.filter(a => a.personId === item.id).length} недельных назначений</small>}</div>
           <button onClick={() => active === 'assignment' ? onOpenAssignment(item as WeeklyAssignment) : onOpen(active as EditableKind, item.id)}>Редактировать</button>
         </div>)}</div>

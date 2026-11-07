@@ -84,7 +84,7 @@ export default function WeeklyTasksPanel({ snapshot, title, records, context, on
     <div className="weekly-panel-body">
       {records.length === 0 && <p className="weekly-muted">На этой неделе задач пока нет.</p>}
       {records.map(record => <div className="weekly-record" key={record.id}>
-        <div className="weekly-record-title"><span className="weekly-person-dot" style={{ background: people.find(item => item.id === record.personId)?.color || '#8995a7' }} />{record.title}{record.count !== null && record.count > 1 && <b>×{record.count}</b>}{record.count === null && <b>Без количества</b>}</div>
+        <div className="weekly-record-title"><span className="weekly-person-dot" style={{ background: people.find(item => item.id === record.personId)?.color || '#8f8370' }} />{record.title}{record.count !== null && record.count > 1 && <b>×{record.count}</b>}{record.count === null && <b>Без количества</b>}</div>
         <div className="weekly-record-meta">{person(record.personId)} · {project(record.projectId)}{record.deliveryId && ` / ${delivery(record.deliveryId)}`} · {record.weekStart}</div>
         {record.note && <p>{record.note}</p>}
         {record.count === null ? <label className="weekly-progress-check"><input type="checkbox" checked={!!record.completed} onChange={event => onSave({ ...valuesFor(record), completed: event.target.checked }, record.id)} />Выполнено</label> : <>

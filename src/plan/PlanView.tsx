@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Snapshot, WeeklyAssignment } from '../model';
 import WeeklyTasksPanel from './WeeklyTasksPanel';
+import WeeklyQuickAdd, { type QuickCell } from './WeeklyQuickAdd';
 import WeeklyLoadDialog from './WeeklyLoadDialog';
 import PlanHelpDialog from './PlanHelpDialog';
 import PlanEntitiesDialog, { type CatalogKind } from './PlanEntitiesDialog';
@@ -101,6 +102,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
   const [catalog, setCatalog] = useState<CatalogKind | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'weeks' | 'dates'>('weeks');
+  const [quick, setQuick] = useState<QuickCell | null>(null);
   const [actionMenu, setActionMenu] = useState<'add' | 'more' | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
   const [projectDrop, setProjectDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null);
@@ -193,7 +196,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       lane: { name: 'Новая дорожка', order: data.lanes.length },
       block: { projectId: data.projects[0]?.id || '', laneId: data.lanes[0]?.id || '', startWeek: week, endWeek: week, content: 'Новый блок', status: 'Запланировано', note: '' },
       event: { type: 'Заметка', startWeek: week, text: 'Новое событие' },
-      person: { type: 'person', name: 'Новый участник', color: '#2563eb' },
+      person: { type: 'person', name: 'Новый участник', color: '#1f6f5c' },
       estimate: { targetType: data.weekBlocks.length ? 'weekBlock' : 'delivery', targetId: data.weekBlocks[0]?.id || data.deliveries[0]?.id || '', value: 0, unit: 'шт.', kind: 'estimate' },
       link: { sourceType: data.weekBlocks.length ? 'weekBlock' : 'delivery', sourceId: data.weekBlocks[0]?.id || data.deliveries[0]?.id || '', targetType: data.stages.length ? 'stage' : 'checkpoint', targetId: data.stages[0]?.id || data.checkpoints[0]?.id || '', note: '' },
     };
@@ -368,15 +371,36 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     if (saved) setMessage(`Добавлено задач: ${values.length}.`);
     return saved;
   }
+  function quickSave(values: TaskValues) {
+    return commit(next => { next.data.weeklyAssignments.push({ ...createBase(), ...values }); });
+  }
+  function toggleDone(record: WeeklyAssignment) {
+    const done = record.count === null ? !!record.completed : (record.completedCount ?? 0) >= record.count;
+    commit(next => {
+      const target = next.data.weeklyAssignments.find(a => a.id === record.id);
+      if (!target) return;
+      if (record.count === null) target.completed = !done;
+      else target.completedCount = done ? 0 : record.count;
+      target.updatedAt = stamp();
+    });
+  }
+  function openQuickPick() {
+    const target = visibleDeliveries[0] || deliveries[0];
+    const projectId = target?.projectId || projects[0]?.id;
+    if (!projectId) { setMessage('Сначала создайте проект.'); return; }
+    const box = (actionMenuTrigger.current || document.body).getBoundingClientRect();
+    setWeekCell(null); setLoadOpen(false);
+    setQuick({ projectId, deliveryId: target?.id || null, weekStart: todayWeek(), rect: { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, pick: true });
+  }
   function assignmentsForCell(projectId: string, deliveryId: string | null, weekStart: string) {
     return filteredAssignments.filter(a => a.projectId === projectId && (a.deliveryId || null) === deliveryId && a.weekStart === weekStart);
   }
   function assignmentCells(projectId: string, deliveryId: string | null) {
     return weeks.map(w => {
       const items = assignmentsForCell(projectId, deliveryId, w);
-      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${items.map(a => `${nameFor(snapshot, 'person', a.personId)}: ${a.title} — ${a.count === null ? a.completed ? 'выполнено' : 'не выполнено' : `${a.completedCount ?? 0} из ${a.count} выполнено`}${a.note ? ` — ${a.note}` : ''}`).join('\n')}` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell({ projectId, deliveryId, weekStart: w }); setSelectedWeek(w); }}>
+      return <button key={`${projectId}-${deliveryId}-${w}`} className={`weekly-cell ${items.length ? 'has-tasks' : ''} ${selectedWeek === w ? 'is-week-selected' : ''}`} title={items.length ? `${items.map(a => `${nameFor(snapshot, 'person', a.personId)}: ${a.title} — ${a.count === null ? a.completed ? 'выполнено' : 'не выполнено' : `${a.completedCount ?? 0} из ${a.count} выполнено`}${a.note ? ` — ${a.note}` : ''}`).join('\n')}` : `Добавить задачу на неделю ${humanDate(w)}`} style={{ gridColumn: weekIndex(w, origin) + 1 }} data-quick-owner onClick={e => { e.stopPropagation(); setLoadOpen(false); setWeekCell(null); const r = e.currentTarget.getBoundingClientRect(); setQuick({ projectId, deliveryId, weekStart: w, rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom } }); setSelectedWeek(w); }}>
         {items.length ? <span className="weekly-cell-content">
-          {items.map(item => <span className={`weekly-task ${item.count !== null && (item.completedCount ?? 0) > item.count ? 'is-over-complete' : ''}`} key={item.id} style={{ borderColor: people.find(person => person.id === item.personId)?.color || '#8995a7', '--task-progress': `${item.count === null ? item.completed ? 100 : 0 : Math.max(0, Math.min(100, (item.completedCount ?? 0) / item.count * 100))}%` } as CSSProperties}>
+          {items.map(item => <span className={`weekly-task ${item.count !== null && (item.completedCount ?? 0) > item.count ? 'is-over-complete' : ''}`} key={item.id} style={{ borderColor: people.find(person => person.id === item.personId)?.color || '#8f8370', '--task-progress': `${item.count === null ? item.completed ? 100 : 0 : Math.max(0, Math.min(100, (item.completedCount ?? 0) / item.count * 100))}%` } as CSSProperties}>
             <span className="weekly-task-head"><span>{nameFor(snapshot, 'person', item.personId)}</span><b>{item.count === null ? item.completed ? '✓' : '' : `${item.completedCount ?? 0}/${item.count}`}</b></span>
             <span className="weekly-task-title">{item.title}</span>
           </span>)}
@@ -394,7 +418,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     const volumeBase = volume ? (volume.total > 0 ? volume.total : Math.max(volume.scheduled, volume.completed)) : 0;
     const volumePercent = (value: number) => volumeBase > 0 ? `${Math.min(100, value / volumeBase * 100)}%` : '0%';
     const maxTasks = projectId ? Math.max(0, ...weeks.map(w => assignmentsForCell(projectId, deliveryId, w).length)) : 0;
-    const rowHeight = Math.max(66, 8 + maxTasks * 54 + Math.max(0, maxTasks - 1) * 4);
+    const showCells = viewMode === 'weeks';
+    const rowHeight = showCells ? Math.max(66, 8 + maxTasks * 54 + Math.max(0, maxTasks - 1) * 4) : 56;
     return <div className={`plan-row ${kind === 'project' || kind === 'delivery' ? 'has-week-cells' : ''} ${selection?.id === id ? 'is-selected' : ''} ${kind === 'project' && projectDrop?.id === id ? `is-drop-${projectDrop.side}` : ''}`} style={projectId ? { height: rowHeight } : undefined} key={`${kind}-${id}`}
       onDragOver={kind === 'project' ? event => { if (!draggingProjectId || draggingProjectId === id) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; const bounds = event.currentTarget.getBoundingClientRect(); const side = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'; if (projectDrop?.id !== id || projectDrop.side !== side) setProjectDrop({ id, side }); } : undefined}
       onDrop={kind === 'project' ? event => { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); const side = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'; if (draggingProjectId && draggingProjectId !== id) moveProject(draggingProjectId, id, side); setDraggingProjectId(null); setProjectDrop(null); } : undefined}>
@@ -407,9 +432,9 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
             <span>Тест <b>{volume.testing}</b></span><span>Разр <b>{volume.development}</b></span><span>Всего <b>{volume.hasVolume ? volume.total : '—'}</b></span><span>План <b>{volume.scheduled}</b></span><span>Готово <b>{volume.completed}{volume.completedManual !== undefined ? '*' : ''}</b></span>
           </div>
           <div className="plan-delivery-row-progress" role="img" aria-label={`Распределено ${volume.scheduled} из ${volume.hasVolume ? volume.total : 'неуказанного объёма'}, выполнено ${volume.completed}`}><span className="is-scheduled" style={{ width: volumePercent(volume.scheduled) }} /><span className="is-completed" style={{ width: volumePercent(volume.completed) }} /></div>
-        </div> : <><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></>}
+        </div> : <><div className="plan-row-heading"><button className="plan-row-name" onClick={() => choose(kind, id)} title={label}>{label}</button><span className="plan-row-detail" title={detail}>{detail}</span></div>{kind === 'project' && <button type="button" className="plan-row-add" onClick={() => add('delivery', { projectId: id })}>+ Поставка</button>}</>}
       </div>
-      <div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties}>{bars}{projectId ? assignmentCells(projectId, deliveryId) : null}</div>
+      <div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties}>{bars}{projectId && showCells ? assignmentCells(projectId, deliveryId) : null}</div>
     </div>;
   }
   function bar(start: string, end: string, label: string, kind: EntityKind, id: string, className = '', title = '') {
@@ -454,6 +479,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
     finally { setExporting(false); }
   }
 
+  const weekTotals = weeks.map(w => filteredAssignments.filter(a => a.weekStart === w && visibleProjects.some(p => p.id === a.projectId)).reduce((sum, a) => sum + (a.count ?? 0), 0));
+  const maxWeekTotal = Math.max(1, ...weekTotals);
   return <div className="plan-page">
     <header className="plan-toolbar">
       <div className="plan-title"><h1>План проектов</h1><span>Недельный обзор поставок и работы</span></div>
@@ -463,11 +490,13 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
           <button className={`plan-filter-toggle ${activeFilterCount ? 'has-active' : ''}`} onClick={() => setFiltersOpen(open => !open)} aria-expanded={filtersOpen} aria-controls="plan-advanced-filters">Фильтры{activeFilterCount > 0 && <span className="plan-filter-count">{activeFilterCount}</span>}</button>
           {hasFilters && <button className="plan-clear-filters" onClick={() => setFilters(DEFAULT_FILTERS)}>Сбросить</button>}
         </div>
+        <div className="plan-mode-switch" role="group" aria-label="Режим плана"><button type="button" aria-pressed={viewMode === 'weeks'} onClick={() => setViewMode('weeks')}>Недели</button><button type="button" aria-pressed={viewMode === 'dates'} onClick={() => { setViewMode('dates'); setQuick(null); }}>Сроки</button></div>
         <div className="plan-menu-actions" ref={actionMenuRef}>
           <button className="plan-primary" onClick={event => { actionMenuTrigger.current = event.currentTarget; setActionMenu(menu => menu === 'add' ? null : 'add'); }} aria-expanded={actionMenu === 'add'} aria-controls="plan-add-menu">+ Добавить</button>
           <button onClick={event => { actionMenuTrigger.current = event.currentTarget; setActionMenu(menu => menu === 'more' ? null : 'more'); }} aria-expanded={actionMenu === 'more'} aria-controls="plan-more-menu">Ещё <span aria-hidden="true">▾</span></button>
           {actionMenu === 'add' && <div className="plan-action-popover" id="plan-add-menu" aria-label="Добавить объект плана">
             <strong>Добавить в план</strong>
+            <button onClick={() => { setActionMenu(null); openQuickPick(); }}>Недельную задачу</button>
             <button onClick={() => { setActionMenu(null); add('project'); }}>Проект</button>
             <button onClick={() => { setActionMenu(null); add('delivery'); }}>Поставку</button>
             <button onClick={() => { setActionMenu(null); add('block'); }}>Рабочий блок</button>
@@ -498,7 +527,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       <button onClick={() => setOrigin(addWeeks(todayWeek(), -2))}>Сегодня</button>
       <button onClick={() => setOrigin(addWeeks(origin, 4))} aria-label="Следующие четыре недели">→</button>
       <label>С недели <input type="date" value={origin} onChange={e => e.target.value && setOrigin(validWeek(e.target.value))} /></label>
-      <label>Период <select value={weeksCount} onChange={e => setWeeksCount(Number(e.target.value))}><option value={8}>8 недель</option><option value={16}>16 недель</option><option value={24}>24 недели</option><option value={32}>32 недели</option></select></label>
+      <div className="plan-scale-switch" role="group" aria-label="Период">{[8, 16, 24, 32].map(n => <button key={n} type="button" aria-pressed={weeksCount === n} onClick={() => setWeeksCount(n)}>{n} нед.</button>)}</div>
       <button onClick={() => {
         const known = [...blocks.map(x => x.startWeek), ...assignments.map(x => x.weekStart), ...deliveries.flatMap(x => x.deadline.kind === 'exact' ? [x.deadline.date] : x.deadline.kind === 'range' ? [x.deadline.start] : [])];
         if (!known.length) return;
@@ -513,13 +542,14 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
         <div className="plan-scroll" ref={planScroll}>
           <div className="plan-grid">
             <div className="plan-grid-head"><div className="plan-head-label">Объекты плана</div><div className="plan-head-weeks" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map(w => <button key={w} className={`${w === todayWeek() ? 'current-week' : ''} ${selectedWeek === w ? 'is-selected-week' : ''}`} onClick={() => { setSelectedWeek(w); setWeekCell(null); setLoadOpen(true); }} aria-label={`Нагрузка недели №${isoWeekNumber(w)}, рабочие дни ${humanDate(w)} — ${humanDate(workweekEnd(w))}`} title={`Рабочие дни: ${humanDate(w)} — ${humanDate(workweekEnd(w))}`}><strong>{workweekLabel(w)}</strong><small>№{isoWeekNumber(w)} · {w.slice(0, 4)}</small></button>)}</div></div>
+            <div className="plan-row plan-load-row"><div className="plan-row-label">Задач в неделю</div><div className="plan-row-track" style={{ '--week-count': weeksCount } as CSSProperties}>{weeks.map((w, i) => <button key={w} className={`plan-load-cell ${weekTotals[i] ? '' : 'is-empty'}`} style={{ '--load': `${weekTotals[i] / maxWeekTotal * 100}%` } as CSSProperties} title={weekTotals[i] ? `Задач на неделе: ${weekTotals[i]}. Нажмите, чтобы открыть нагрузку по людям.` : 'Задач нет'} onClick={() => { setSelectedWeek(w); setWeekCell(null); setQuick(null); setLoadOpen(true); }}><i /><span>{weekTotals[i] || ''}</span></button>)}</div></div>
             {!projects.length && <div className="plan-empty">План пока пуст. Создайте проект, затем добавьте поставку и недельные задачи.</div>}
             {visibleProjects.map(p => <div key={p.id}>
               {row('project', p.id, p.name, `${p.type} · ${p.status}`, 0, null, true)}
               {!collapsed.has(p.id) && <>
                 {visibleDeliveries.filter(d => d.projectId === p.id).map(d => <div key={d.id}>
                   {row('delivery', d.id, d.name, `${d.kind} · ${deadlineText(d.deadline as DateReference)}`, 1, <>{d.deadline.kind === 'exact' && marker(d.deadline.date, d.name, 'delivery', d.id)}{d.deadline.kind === 'range' && bar(d.deadline.start, d.deadline.end, '≈ срок', 'delivery', d.id, 'is-soft')}{d.checkpointDate.kind === 'exact' && marker(d.checkpointDate.date, 'Контрольная дата', 'delivery', d.id, true)}</>, true)}
-                  {!collapsed.has(d.id) && [...data.lanes].sort((a, b) => a.order - b.order).map(l => {
+                  {viewMode === 'dates' && !collapsed.has(d.id) && [...data.lanes].sort((a, b) => a.order - b.order).map(l => {
                     const laneBlocks = filteredBlocks.filter(b => b.deliveryId === d.id && b.laneId === l.id);
                     if (!laneBlocks.length) return null;
                     return <div key={`${d.id}-${l.id}`}>
@@ -528,7 +558,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
                     </div>;
                   })}
                 </div>)}
-                {[...data.lanes].sort((a, b) => a.order - b.order).map(l => {
+                {viewMode === 'dates' && [...data.lanes].sort((a, b) => a.order - b.order).map(l => {
                   const laneBlocks = filteredBlocks.filter(b => b.projectId === p.id && !b.deliveryId && b.laneId === l.id);
                   if (!laneBlocks.length) return null;
                   return <div key={`${p.id}-${l.id}-loose`}>
@@ -538,8 +568,8 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
                 })}
               </>}
             </div>)}
-            {visibleEvents.length > 0 && <div className="plan-section-label">События</div>}
-            {visibleEvents.map(e => row('event', e.id, e.type, e.text, 0, bar(e.startWeek, e.endWeek || e.startWeek, e.text, 'event', e.id, 'is-event')))}
+            {viewMode === 'dates' && visibleEvents.length > 0 && <div className="plan-section-label">События</div>}
+            {viewMode === 'dates' && visibleEvents.map(e => row('event', e.id, e.type, e.text, 0, bar(e.startWeek, e.endWeek || e.startWeek, e.text, 'event', e.id, 'is-event')))}
           </div>
         </div>
         {showUndated && undated.length > 0 && <div className="plan-undated"><div><strong>Без срока</strong><button onClick={() => setShowUndated(false)}>Скрыть</button></div>{undated.map(d => <button key={d.id} onClick={() => choose('delivery', d.id)}>{nameFor(snapshot, 'project', d.projectId)} · {d.name}</button>)}</div>}
@@ -548,6 +578,7 @@ export default function PlanView({ snapshot, onChange, onNavigateToProcess, init
       </div>
     </div>
     {loadOpen && selectedWeek && <WeeklyLoadDialog snapshot={snapshot} weekStart={selectedWeek} weekNumber={isoWeekNumber(selectedWeek)} records={weekAssignments} blocks={weekBlocks} onClose={() => setLoadOpen(false)} onOpenAssignment={record => { setLoadOpen(false); setWeekCell({ projectId: record.projectId, deliveryId: record.deliveryId || null, weekStart: record.weekStart }); }} onOpenBlock={record => choose('block', record.id)} />}
+    {quick && <WeeklyQuickAdd snapshot={snapshot} cell={quick} records={assignments.filter(a => a.projectId === quick.projectId && (a.deliveryId || null) === quick.deliveryId && a.weekStart === quick.weekStart)} weekLabel={`${workweekLabel(quick.weekStart)} · №${isoWeekNumber(quick.weekStart)}`} onChangeTarget={(projectId, deliveryId) => setQuick({ ...quick, projectId, deliveryId })} onSave={quickSave} onToggle={toggleDone} onOpenDetails={() => { setWeekCell({ projectId: quick.projectId, deliveryId: quick.deliveryId, weekStart: quick.weekStart }); setQuick(null); }} onClose={() => setQuick(null)} />}
     {weekCell && <div className="plan-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setWeekCell(null); }}><div className="plan-modal plan-weekly-modal" role="dialog" aria-modal="true" aria-label="Недельные задачи"><WeeklyTasksPanel key={`${weekCell.projectId}-${weekCell.deliveryId}-${weekCell.weekStart}`} snapshot={snapshot} context={weekCell} title={`${nameFor(snapshot, 'project', weekCell.projectId)}${weekCell.deliveryId ? ` / ${nameFor(snapshot, 'delivery', weekCell.deliveryId)}` : ''} · ${humanDate(weekCell.weekStart)}`} records={panelRecords} onSave={saveAssignment} onSaveBulk={saveBulk} onDelete={id => { if (window.confirm('Удалить недельную задачу?')) commit(next => { next.data.weeklyAssignments = next.data.weeklyAssignments.filter(a => a.id !== id); }); }} onClose={() => setWeekCell(null)} /></div></div>}
     {!weekCell && !loadOpen && !catalog && selection && selected && <div className="plan-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeInspector(); }}><div className="plan-modal plan-editor-modal" role="dialog" aria-modal="true" aria-label={`${isDraft ? 'Создать' : 'Редактировать'} ${selected.name || selected.content || selected.text || 'объект'}`}><aside className="plan-inspector"><div className="plan-inspector-head"><div><small>{isDraft ? 'Новый объект' : 'Редактирование'}</small><h2>{selected.name || selected.content || selected.text || 'Объект'}</h2></div><button aria-label="Закрыть редактор" onClick={closeInspector}>×</button></div>
       <Inspector snapshot={snapshot} kind={selection.kind} item={selected} isDraft={isDraft} fieldError={fieldError} update={values => update(selection.kind, selection.id, values)} add={add} choose={choose} onNavigateToProcess={onNavigateToProcess} onWeekNormalized={value => setMessage(`Дата ${humanDate(value)} приведена к понедельнику ${humanDate(validWeek(value))}.`)} />
@@ -592,7 +623,7 @@ function Inspector({ snapshot, kind, item, isDraft, fieldError, update, add, cho
     {kind === 'lane' && <>{input('Название', 'name')}{input('Порядок', 'order', 'number')}</>}
     {kind === 'block' && <>{select('Проект', 'projectId', d.projects)}{select('Поставка', 'deliveryId', d.deliveries.filter(x => x.projectId === item.projectId))}{select('Дорожка', 'laneId', d.lanes)}{select('Человек', 'personId', d.actors.filter(x => x.type === 'person'), 'Не назначено')}{input('Содержание', 'content')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek} onChange={e => weekChange('endWeek', e.target.value)} /></label></div><small>Хранятся понедельники. Последняя неделя включена.</small>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{status()}{area('Заметка', 'note')}{!isDraft && <>{estimateSection('weekBlock')}{linkSection('weekBlock')}</>}</>}
     {kind === 'event' && <>{input('Тип события', 'type')}<div className="plan-date-pair"><label className="plan-field">Первая неделя<input type="date" value={item.startWeek} onChange={e => weekChange('startWeek', e.target.value)} /></label><label className="plan-field">Последняя неделя<input type="date" value={item.endWeek || ''} onChange={e => weekChange('endWeek', e.target.value)} /></label></div>{weekDateIssue(kind, item) && <small className="plan-field-error">{weekDateIssue(kind, item)}</small>}{select('Проект', 'projectId', d.projects)}{select('Участник', 'actorId', d.actors.filter(x => x.type === 'person'))}{area('Текст', 'text')}</>}
-    {kind === 'person' && <>{input('Имя', 'name')}{select('Отдел', 'departmentId', d.actors.filter(x => x.type === 'department'))}<label className="plan-field">Цвет метки<input type="color" value={item.color || '#2563eb'} onChange={e => update({ color: e.target.value })} /></label><p className="plan-help">Человек находится в общем справочнике и доступен на карте процессов.</p></>}
+    {kind === 'person' && <>{input('Имя', 'name')}{select('Отдел', 'departmentId', d.actors.filter(x => x.type === 'department'))}<label className="plan-field">Цвет метки<input type="color" value={item.color || '#1f6f5c'} onChange={e => update({ color: e.target.value })} /></label><p className="plan-help">Человек находится в общем справочнике и доступен на карте процессов.</p></>}
     {kind === 'estimate' && <><label className="plan-field">Объект<select value={`${item.targetType}:${item.targetId}`} onChange={e => { const [targetType, targetId] = e.target.value.split(':'); update({ targetType, targetId }); }}>{d.deliveries.map(x => <option key={x.id} value={`delivery:${x.id}`}>Поставка: {x.name}</option>)}{d.weekBlocks.map(x => <option key={x.id} value={`weekBlock:${x.id}`}>Блок: {x.content}</option>)}</select></label>{input('Значение', 'value', 'number')}{input('Единица', 'unit')}<label className="plan-field">Вид<select value={item.kind} onChange={e => update({ kind: e.target.value })}><option value="estimate">Оценка</option><option value="forecast">Прогноз</option><option value="actual">Факт</option></select></label></>}
     {kind === 'link' && <><label className="plan-field">Объект плана<select value={`${item.sourceType}:${item.sourceId}`} onChange={e => { const [sourceType, sourceId] = e.target.value.split(':'); update({ sourceType, sourceId }); }}>{d.deliveries.map(x => <option key={x.id} value={`delivery:${x.id}`}>Поставка: {x.name}</option>)}{d.weekBlocks.map(x => <option key={x.id} value={`weekBlock:${x.id}`}>Блок: {x.content}</option>)}</select></label><label className="plan-field">Этап или точка процесса<select value={`${item.targetType}:${item.targetId}`} onChange={e => { const [targetType, targetId] = e.target.value.split(':'); update({ targetType, targetId }); }}>{d.stages.map(x => <option key={x.id} value={`stage:${x.id}`}>Этап: {x.name}</option>)}{d.checkpoints.map(x => <option key={x.id} value={`checkpoint:${x.id}`}>Точка: {x.name}</option>)}</select></label>{area('Пояснение', 'note')}<button onClick={() => onNavigateToProcess(item.targetId)}>Открыть на карте ↗</button></>}
     <small className="plan-id">ID: {item.id}</small>

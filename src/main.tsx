@@ -7,6 +7,7 @@ import { PlanView } from './plan';
 import { CanvasView } from './canvas';
 import { PersonalView } from './personal';
 import { FlowKitView } from './flow-kit';
+import './theme.css';
 import './style.css';
 
 type Page = 'process' | 'plan' | 'canvas' | 'personal' | 'flowkit';

@@ -34,6 +34,9 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [selected, setSelected] = useState(() => localDateKey(new Date()))
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [view, setView] = useState<'list' | 'board'>('list')
+  const [doneOpen, setDoneOpen] = useState(false)
+  const [quickTitle, setQuickTitle] = useState('')
   const [editorOpen, setEditorOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
@@ -77,6 +80,42 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
   const active = current.filter(task => task.status !== 'done').length
   const completed = current.filter(task => task.status === 'done').length
 
+  const weekDays = useMemo(() => {
+    const day = new Date(`${selected}T12:00:00`)
+    const start = shiftDay(selected, -((day.getDay() + 6) % 7))
+    return Array.from({ length: 7 }, (_, index) => shiftDay(start, index))
+  }, [selected])
+  const byTime = (a: PersonalTask, b: PersonalTask) => (a.plannedTime || '99:99').localeCompare(b.plannedTime || '99:99') || a.createdAt.localeCompare(b.createdAt)
+  const isCarried = (task: PersonalTask) => selected === today && task.status !== 'done' && task.plannedDate < today
+  const carriedTasks = dayTasks.filter(isCarried).sort(byTime)
+  const openTasks = dayTasks.filter(task => task.status !== 'done' && !isCarried(task)).sort(byTime)
+  const doneTasks = dayTasks.filter(task => task.status === 'done').sort(byTime)
+
+  function quickAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    let clean = quickTitle.trim()
+    let time: string | undefined
+    const match = clean.match(/^(\d{1,2})[:.](\d{2})\s+(.+)$/)
+    if (match && Number(match[1]) < 24 && Number(match[2]) < 60) { time = `${match[1].padStart(2, '0')}:${match[2]}`; clean = match[3].trim() }
+    if (!clean) return
+    const now = new Date().toISOString()
+    saveTasks([...tasks, { id: createId(), createdAt: now, updatedAt: now, title: clean, note: '', plannedDate: selected > today ? selected : today, plannedTime: time, status: 'todo' }])
+    setQuickTitle('')
+  }
+
+  function removeTask(task: PersonalTask) {
+    if (window.confirm(`Удалить задачу «${task.title}»?`)) saveTasks(tasks.filter(item => item.id !== task.id))
+  }
+
+  function taskRow(task: PersonalTask) {
+    return <div className={`personal-row ${task.status}`} key={task.id}>
+      <span className="personal-row-time">{task.plannedTime || ''}</span>
+      <button type="button" className="personal-check" onClick={() => moveTask(task.id, task.status === 'done' ? 'todo' : 'done')} aria-label={`${task.status === 'done' ? 'Вернуть в план' : 'Готово'}: ${task.title}`}>{task.status === 'done' ? '✓' : ''}</button>
+      <button type="button" className="personal-row-main" onClick={() => startEdit(task)} title="Редактировать задачу"><strong>{task.title}{task.status === 'doing' && <em>В работе</em>}</strong>{(task.note || (task.plannedDate < today && task.status !== 'done')) && <span>{task.plannedDate < today && task.status !== 'done' ? `С ${dateLabel(task.plannedDate)}${task.note ? ' · ' : ''}` : ''}{task.note}</span>}</button>
+      <div className="personal-row-actions">{task.status !== 'done' && <button type="button" onClick={() => moveTask(task.id, task.status === 'doing' ? 'todo' : 'doing')}>{task.status === 'doing' ? 'В план' : 'В работу'}</button>}<button type="button" className="personal-delete" onClick={() => removeTask(task)} aria-label={`Удалить: ${task.title}`}><Trash2 size={15}/></button></div>
+    </div>
+  }
+
   function saveTasks(nextTasks: PersonalTask[]) {
     void onChange({ ...snapshot, data: { ...snapshot.data, personalTasks: nextTasks } })
   }
@@ -93,6 +132,7 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
 
   function openAdd() {
     clearEditor(selected)
+    setTitle(quickTitle.trim()); setQuickTitle('')
     setEditorOpen(true)
   }
 
@@ -143,9 +183,21 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
       <div><div className="personal-eyebrow"><CalendarDays size={15}/> Личное пространство</div><h1>Мои задачи</h1><p>План на каждый день. Незавершённые дела автоматически видны сегодня.</p></div>
       <div className="personal-today-summary"><strong>Сегодня</strong><span>{active} в планах · {completed} сделано</span>{carried > 0 && <small>{carried} перенесено с прошлых дней</small>}</div>
     </div>
-    <div className="personal-calendar-panel">
-      <button type="button" className="personal-calendar-toggle" aria-expanded={calendarOpen} onClick={() => setCalendarOpen(open => !open)}><CalendarDays size={17}/><span>Календарь</span><small>{monthFormat.format(month)}</small><ChevronDown className={calendarOpen ? 'open' : ''} size={17}/></button>
-      {calendarOpen && <><div className="personal-calendar-toolbar"><h2>{monthFormat.format(month)}</h2><div><button type="button" onClick={() => navigateMonth(-1)} aria-label="Предыдущий месяц"><ChevronLeft size={18}/></button><button type="button" onClick={() => selectDate(today)}>Сегодня</button><button type="button" onClick={() => navigateMonth(1)} aria-label="Следующий месяц"><ChevronRight size={18}/></button></div></div>
+    <div className="personal-strip" aria-label="Неделя">
+      <button type="button" className="personal-strip-nav" onClick={() => selectDate(shiftDay(selected, -7))} aria-label="Предыдущая неделя"><ChevronLeft size={17}/></button>
+      <div className="personal-strip-days">{weekDays.map((day, index) => {
+        const entries = tasksForDay(tasks, day, today)
+        const pending = entries.filter(task => task.status !== 'done').length
+        const done = entries.length - pending
+        return <button type="button" key={day} className={`personal-strip-day ${day === today ? 'today' : ''} ${selected === day ? 'selected' : ''}`} onClick={() => selectDate(day)} aria-pressed={selected === day} aria-label={`${dateLabel(day)}: ${pending} в работе или к выполнению, ${done} сделано`}>
+          <span className="personal-strip-weekday">{weekdays[index]}</span><span className="personal-strip-number">{Number(day.slice(-2))}</span>
+          <span className="personal-day-counts">{pending > 0 && <span className="personal-count pending">{pending} дел</span>}{done > 0 && <span className="personal-count done">{done} готово</span>}</span>
+        </button>
+      })}</div>
+      <button type="button" className="personal-strip-nav" onClick={() => selectDate(shiftDay(selected, 7))} aria-label="Следующая неделя"><ChevronRight size={17}/></button>
+      <button type="button" className="personal-month-toggle" aria-expanded={calendarOpen} onClick={() => setCalendarOpen(open => !open)}><CalendarDays size={16}/>Месяц<ChevronDown className={calendarOpen ? 'open' : ''} size={15}/></button>
+    </div>
+    {calendarOpen && <div className="personal-calendar-panel"><div className="personal-calendar-toolbar"><h2>{monthFormat.format(month)}</h2><div><button type="button" onClick={() => navigateMonth(-1)} aria-label="Предыдущий месяц"><ChevronLeft size={18}/></button><button type="button" onClick={() => selectDate(today)}>Сегодня</button><button type="button" onClick={() => navigateMonth(1)} aria-label="Следующий месяц"><ChevronRight size={18}/></button></div></div>
       <div className="personal-calendar" aria-label="Календарь личных задач">
         {weekdays.map(day => <div className="personal-weekday" key={day}>{day}</div>)}
         {days.map(day => {
@@ -156,14 +208,24 @@ export function PersonalView({ snapshot, onChange }: { snapshot: Snapshot; onCha
             <span className="personal-day-number">{Number(day.date.slice(-2))}</span><span className="personal-day-counts">{pending > 0 && <span className="personal-count pending">{pending} дел</span>}{done > 0 && <span className="personal-count done">{done} готово</span>}</span>
           </button>
         })}
-      </div></>}
-    </div>
+      </div></div>}
+    <form className="personal-quick" onSubmit={quickAdd}>
+      <span aria-hidden="true"><Plus size={18}/></span>
+      <input value={quickTitle} onChange={event => setQuickTitle(event.target.value)} placeholder={`Новая задача на ${selected === today ? 'сегодня' : dateLabel(selected)}… например: 14:30 Созвон с банком`} maxLength={200} aria-label="Новая задача"/>
+      <span className="personal-quick-hint">Enter — добавить</span>
+      <button type="button" onClick={openAdd}>Подробнее</button>
+    </form>
     <div className="personal-board-panel">
-      <div className="personal-board-heading"><div><small>Доска дня</small><h2>{dateLabel(selected)}</h2><p>{dayTasks.length} задач{selected === today && carried > 0 ? ` · ${carried} перенесено` : ''}</p></div><div className="personal-board-actions"><button type="button" onClick={() => selectDate(shiftDay(selected, -1))} aria-label="Предыдущий день"><ChevronLeft size={17}/></button><button type="button" onClick={() => selectDate(today)}>Сегодня</button><button type="button" onClick={() => selectDate(shiftDay(selected, 1))} aria-label="Следующий день"><ChevronRight size={17}/></button><button type="button" className="personal-primary" onClick={openAdd}><Plus size={16}/>Добавить задачу</button></div></div>
-      <div className="personal-board">{columns.map(column => {
+      <div className="personal-board-heading"><div><small>{selected === today ? 'Сегодня' : 'День'}</small><h2>{dateLabel(selected)}</h2><p>{dayTasks.length} задач{selected === today && carried > 0 ? ` · ${carried} перенесено` : ''}</p></div><div className="personal-board-actions"><button type="button" onClick={() => selectDate(today)}>Сегодня</button><div className="personal-view-switch" role="group" aria-label="Вид дня"><button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>Список</button><button type="button" aria-pressed={view === 'board'} onClick={() => setView('board')}>Доска</button></div></div></div>
+      {view === 'board' ? <div className="personal-board">{columns.map(column => {
         const items = dayTasks.filter(task => task.status === column.status).sort((a, b) => (a.plannedTime || '99:99').localeCompare(b.plannedTime || '99:99') || a.createdAt.localeCompare(b.createdAt))
-        return <section className={`personal-column ${column.status}`} key={column.status} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, column.status)} aria-label={column.title}><h3>{column.title}<span>{items.length}</span></h3><div className="personal-cards">{items.length === 0 && <p className="personal-empty">Пока пусто</p>}{items.map(task => <article className="personal-card" key={task.id} draggable onDragStart={event => { setDragId(task.id); event.dataTransfer.setData('text/plain', task.id); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragId(null)}>{task.plannedTime && <span className="personal-card-time"><Clock3 size={13}/>{task.plannedTime}</span>}<button type="button" className="personal-card-title" onClick={() => startEdit(task)} title="Редактировать задачу">{task.title}</button>{task.note && <p>{task.note}</p>}{task.plannedDate < today && task.status !== 'done' && <small className="personal-overdue">С {dateLabel(task.plannedDate)}</small>}<div className="personal-card-footer"><div className="personal-card-actions">{statusActions[task.status].map(action => <button type="button" key={action.status} className={`personal-status-action ${action.status === 'done' ? 'finish' : ''}`} onClick={() => moveTask(task.id, action.status)} aria-label={`${action.label}: ${task.title}`}>{action.label}</button>)}</div><button type="button" className="personal-delete" onClick={() => { if (window.confirm(`Удалить задачу «${task.title}»?`)) saveTasks(tasks.filter(item => item.id !== task.id)) }} aria-label={`Удалить: ${task.title}`}><Trash2 size={15}/></button></div></article>)}</div></section>
-      })}</div>
+        return <section className={`personal-column ${column.status}`} key={column.status} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, column.status)} aria-label={column.title}><h3>{column.title}<span>{items.length}</span></h3><div className="personal-cards">{items.length === 0 && <p className="personal-empty">Пока пусто</p>}{items.map(task => <article className="personal-card" key={task.id} draggable onDragStart={event => { setDragId(task.id); event.dataTransfer.setData('text/plain', task.id); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => setDragId(null)}>{task.plannedTime && <span className="personal-card-time"><Clock3 size={13}/>{task.plannedTime}</span>}<button type="button" className="personal-card-title" onClick={() => startEdit(task)} title="Редактировать задачу">{task.title}</button>{task.note && <p>{task.note}</p>}{task.plannedDate < today && task.status !== 'done' && <small className="personal-overdue">С {dateLabel(task.plannedDate)}</small>}<div className="personal-card-footer"><div className="personal-card-actions">{statusActions[task.status].map(action => <button type="button" key={action.status} className={`personal-status-action ${action.status === 'done' ? 'finish' : ''}`} onClick={() => moveTask(task.id, action.status)} aria-label={`${action.label}: ${task.title}`}>{action.label}</button>)}</div><button type="button" className="personal-delete" onClick={() => removeTask(task)} aria-label={`Удалить: ${task.title}`}><Trash2 size={15}/></button></div></article>)}</div></section>
+      })}</div> : <div className="personal-list">
+        {carriedTasks.length > 0 && <><div className="personal-list-section is-warning">Перенесено с прошлых дней<span>{carriedTasks.length}</span></div>{carriedTasks.map(taskRow)}</>}
+        <div className="personal-list-section">Запланировано<span>{openTasks.length}</span></div>
+        {openTasks.length === 0 ? <p className="personal-empty">На этот день ничего не запланировано. Добавьте задачу строкой выше.</p> : openTasks.map(taskRow)}
+        {doneTasks.length > 0 && <><button type="button" className="personal-list-section is-toggle" aria-expanded={doneOpen} onClick={() => setDoneOpen(open => !open)}>Сделано<span>{doneTasks.length}</span><ChevronDown className={doneOpen ? 'open' : ''} size={15}/></button>{doneOpen && doneTasks.map(taskRow)}</>}
+      </div>}
     </div>
     {editorOpen && <div className="personal-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeEditor() }}><div className="personal-modal" role="dialog" aria-modal="true" aria-labelledby="personal-modal-title"><div className="personal-modal-heading"><div><small>{editingId ? 'Редактирование задачи' : 'Новая задача'}</small><h2 id="personal-modal-title">{editingId ? 'Изменить задачу' : 'Добавить задачу'}</h2></div><button type="button" onClick={closeEditor} aria-label="Закрыть окно"><X size={18}/></button></div><form onSubmit={submit} className="personal-modal-form"><label>Название задачи<input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Что нужно сделать?" maxLength={200} required/></label><div className="personal-modal-schedule"><label>Дата<input type="date" value={plannedDate} onChange={event => setPlannedDate(event.target.value)} required/></label><label>Время (необязательно)<input type="time" value={plannedTime} onChange={event => setPlannedTime(event.target.value)}/></label></div><label>Описание и заметки<textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Контекст, шаги или ссылки" maxLength={4000} rows={6}/></label><div className="personal-modal-actions"><button type="button" onClick={closeEditor}>Отмена</button><button type="submit" className="personal-primary">{editingId ? 'Сохранить' : 'Добавить задачу'}</button></div></form></div></div>}
   </section>

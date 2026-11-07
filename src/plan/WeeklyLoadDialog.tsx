@@ -34,8 +34,8 @@ export default function WeeklyLoadDialog({ snapshot, weekStart, weekNumber, reco
   const people = snapshot.data.actors.filter(item => item.type === 'person');
   const assignedPeople = people.filter(person => records.some(item => item.personId === person.id) || blocks.some(item => item.personId === person.id));
   const groups = [
-    ...assignedPeople.map(person => ({ id: person.id, name: person.name, color: person.color || '#8995a7' })),
-    ...(records.some(item => !item.personId) || blocks.some(item => !item.personId) ? [{ id: '', name: 'Не назначено', color: '#8995a7' }] : []),
+    ...assignedPeople.map(person => ({ id: person.id, name: person.name, color: person.color || '#8f8370' })),
+    ...(records.some(item => !item.personId) || blocks.some(item => !item.personId) ? [{ id: '', name: 'Не назначено', color: '#8f8370' }] : []),
   ];
   const projectName = (id: string) => snapshot.data.projects.find(item => item.id === id)?.name || 'Удалённый проект';
   const deliveryName = (id?: string | null) => snapshot.data.deliveries.find(item => item.id === id)?.name || '';

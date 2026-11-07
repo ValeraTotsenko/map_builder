@@ -1,0 +1,19 @@
+/* Тема «Бумага»: все цвета интерфейса определяются здесь. Значения данных (цвета групп, людей, схемы) не меняются. */
+:root{
+  --surface:#f6f1e7;--surface-raised:#fffdf8;--surface-sunken:#ece5d6;
+  --line:#ddd3bf;--line-strong:#bfb298;
+  --ink:#2a2218;--ink-2:#4a3f30;--ink-muted:#6b5f4d;--ink-faint:#8f8370;
+  --accent:#1f6f5c;--accent-strong:#17594a;--accent-line:#8fbfae;--accent-soft:#dcebe4;--accent-tint:#eaf3ee;--on-accent:#fffdf8;
+  --danger:#a3341f;--danger-line:#e0a99d;--danger-soft:#f7e2dc;
+  --success:#2d6a3e;--success-line:#9fc7a8;--success-soft:#dcebdd;
+  --warning:#8a5a00;--warning-line:#dcb866;--warning-soft:#f5e6c5;
+  --violet:#6b4c9a;--violet-line:#bda8dc;--violet-soft:#ece4f6;
+  --scrim:rgba(42,34,24,.45);
+  --shadow-popover:0 8px 24px rgba(42,34,24,.16);--shadow-modal:0 24px 80px rgba(42,34,24,.3);
+  --font-sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-display:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:16px;
+  color-scheme:light;
+}
+h1,h2{font-family:var(--font-display);font-weight:600;letter-spacing:-.005em}
+::selection{background:var(--accent-soft)}

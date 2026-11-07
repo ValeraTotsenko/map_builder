@@ -1,0 +1,23 @@
+.quick-add{position:fixed;z-index:90;width:350px;max-width:calc(100vw - 16px);display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--surface-raised);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-popover);font-size:13px;color:var(--ink)}
+.quick-add-head{display:flex;flex-direction:column;gap:1px}
+.quick-add-head small{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted)}
+.quick-add-head strong{font-family:var(--font-display);font-size:16px;font-weight:600}
+.quick-add-where{color:var(--ink-muted);font-size:12px;margin-top:-6px}
+.quick-add-target{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--ink-muted)}
+.quick-add-target select,.quick-add-form select,.quick-add-form input{border:1px solid var(--line-strong);background:var(--surface-raised);color:var(--ink);border-radius:var(--radius-sm);padding:6px 8px;min-width:0;font-weight:400;font-size:13px}
+.quick-add-list{display:flex;flex-direction:column;gap:2px;max-height:190px;overflow:auto}
+.quick-add-empty{margin:0;color:var(--ink-muted);font-size:12px}
+.quick-add-item{display:flex;align-items:center;gap:8px;padding:4px 2px;border-radius:var(--radius-sm)}
+.quick-add-item:hover{background:var(--surface)}
+.quick-add-item b{font-variant-numeric:tabular-nums;color:var(--ink-muted);font-size:12px;font-weight:600}
+.quick-add-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick-add-item.is-done .quick-add-title{text-decoration:line-through;color:var(--ink-muted)}
+.quick-add-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.plan-page .quick-add-check{width:20px;height:20px;min-width:20px;flex:none;padding:0;box-sizing:border-box;border-radius:50%;border:2px solid var(--line-strong);background:transparent;color:var(--on-accent);font-size:12px;line-height:1;display:grid;place-items:center;cursor:pointer}
+.plan-page .quick-add-check:hover{border-color:var(--success)}
+.quick-add-item.is-done .plan-page .quick-add-check{background:var(--success);border-color:var(--success)}
+.quick-add-form{display:grid;grid-template-columns:minmax(0,1fr) 120px 52px;gap:6px}
+.quick-add-form input:focus,.quick-add-form select:focus{border-color:var(--accent);outline:2px solid var(--accent-soft);outline-offset:0}
+.quick-add-foot{display:flex;justify-content:space-between}
+.plan-page .quick-add-foot button{border:0;background:transparent;padding:4px 6px;border-radius:var(--radius-sm);font-weight:600;font-size:12px;color:var(--accent-strong);cursor:pointer}
+.plan-page .quick-add-foot button:hover{background:var(--accent-tint)}
